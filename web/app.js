@@ -1,11 +1,12 @@
 import mermaid from "./vendor/mermaid/mermaid.esm.min.mjs";
+import { exportSvgElementToPptx } from "./pptx-export.js";
 
 const DOWNLOAD_BUTTON_LABEL = "生成可编辑 PPT";
-const STATIC_PREVIEW_BUTTON_LABEL = "Pages 上仅预览";
-const READY_TO_EXPORT_MESSAGE = "语法已通过；当前图可以导出成真正可编辑的 PPT。";
+const READY_TO_EXPORT_MESSAGE = "语法已通过；可以直接在当前页面导出可编辑的 PPT。";
 const WAIT_FOR_VALIDATION_MESSAGE = "先通过语法检查后才允许导出。";
-const OFFLINE_EXPORT_MESSAGE =
-  "GitHub Pages 是静态站点，没有导出后端。要导出可编辑 PPT，请本地运行 npm run dev。";
+const EXPORT_IN_PROGRESS_MESSAGE = "浏览器正在把当前 SVG 转成可编辑的 PPT。";
+const EXPORT_MODE_MESSAGE = "浏览器导出模式";
+const EXPORT_LIBRARY_MISSING_MESSAGE = "浏览器导出库没有加载成功，当前页面无法生成 PPT。";
 
 const sampleDiagram = `flowchart TD
     A[Start] --> B{Check input}
@@ -20,7 +21,7 @@ const editor = document.querySelector("#editor");
 const previewFrame = document.querySelector("#preview-frame");
 const errorBox = document.querySelector("#error-box");
 const syntaxStatus = document.querySelector("#syntax-status");
-const backendStatus = document.querySelector("#backend-status");
+const exportStatus = document.querySelector("#export-status");
 const themeSelect = document.querySelector("#theme-select");
 const backgroundInput = document.querySelector("#background-input");
 const fileNameInput = document.querySelector("#filename-input");
@@ -30,7 +31,7 @@ const helperText = document.querySelector("#helper-text");
 
 let latestRenderToken = 0;
 let currentIsValid = false;
-let backendAvailable = false;
+let exportAvailable = typeof window.PptxGenJS === "function";
 
 mermaid.initialize({
   startOnLoad: false,
@@ -52,6 +53,8 @@ themeSelect.addEventListener("change", () => {
   debouncedRender();
 });
 
+backgroundInput.addEventListener("input", updatePreviewBackground);
+
 sampleButton.addEventListener("click", () => {
   editor.value = sampleDiagram;
   setIdleState("载入示例后重新渲染中…");
@@ -59,42 +62,25 @@ sampleButton.addEventListener("click", () => {
 });
 
 downloadButton.addEventListener("click", async () => {
-  if (!currentIsValid) {
+  if (!currentIsValid || !exportAvailable) {
     return;
   }
 
   downloadButton.disabled = true;
   downloadButton.textContent = "正在生成…";
-  helperText.textContent = "后端正在把 Mermaid 渲染成 SVG，再转换成可编辑 PPT。";
+  helperText.textContent = EXPORT_IN_PROGRESS_MESSAGE;
 
   try {
-    const response = await fetch(resolveApiUrl("api/export"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        background: backgroundInput.value,
-        fileName: fileNameInput.value,
-        mermaidCode: editor.value,
-        theme: themeSelect.value,
-      }),
-    });
-
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({ error: "导出失败。" }));
-      throw new Error(payload.error || "导出失败。");
+    const svgElement = previewFrame.querySelector("svg");
+    if (!svgElement) {
+      throw new Error("当前没有可导出的 SVG 预览。请先通过 Mermaid 语法检查。");
     }
 
-    const blob = await response.blob();
-    const downloadUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = downloadUrl;
-    anchor.download = normalizeFileName(fileNameInput.value);
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(downloadUrl);
+    await exportSvgElementToPptx(svgElement, {
+      backgroundColor: backgroundInput.value,
+      fileName: normalizeFileName(fileNameInput.value),
+      title: normalizePresentationTitle(fileNameInput.value),
+    });
 
     helperText.textContent = "PPT 已生成。下载文件里是可编辑的原生 shape/text。";
   } catch (error) {
@@ -104,8 +90,9 @@ downloadButton.addEventListener("click", async () => {
   }
 });
 
+setExportModeState();
+updatePreviewBackground();
 validateAndRender();
-checkBackendAvailability();
 
 async function validateAndRender() {
   const code = editor.value.trim();
@@ -143,7 +130,7 @@ async function validateAndRender() {
     syncDownloadState();
     syntaxStatus.textContent = "语法通过";
     syntaxStatus.className = "status-pill status-ok";
-    helperText.textContent = backendAvailable ? READY_TO_EXPORT_MESSAGE : OFFLINE_EXPORT_MESSAGE;
+    helperText.textContent = exportAvailable ? READY_TO_EXPORT_MESSAGE : EXPORT_LIBRARY_MISSING_MESSAGE;
   } catch (error) {
     if (token !== latestRenderToken) {
       return;
@@ -165,46 +152,21 @@ function setIdleState(message) {
   syntaxStatus.className = "status-pill status-idle";
 }
 
-async function checkBackendAvailability() {
-  backendStatus.textContent = "检查导出服务中";
-  backendStatus.className = "status-pill status-idle";
-
-  try {
-    const response = await fetch(resolveApiUrl("api/health"), {
-      cache: "no-store",
-    });
-    backendAvailable = response.ok;
-  } catch {
-    backendAvailable = false;
-  }
-
-  if (backendAvailable) {
-    backendStatus.textContent = "导出服务在线";
-    backendStatus.className = "status-pill status-ok";
-    helperText.textContent = currentIsValid
-      ? READY_TO_EXPORT_MESSAGE
-      : WAIT_FOR_VALIDATION_MESSAGE;
-  } else {
-    backendStatus.textContent = "仅静态预览模式";
-    backendStatus.className = "status-pill status-offline";
-    helperText.textContent = OFFLINE_EXPORT_MESSAGE;
-  }
-
+function setExportModeState() {
+  exportAvailable = typeof window.PptxGenJS === "function";
+  exportStatus.textContent = exportAvailable ? EXPORT_MODE_MESSAGE : "导出库未加载";
+  exportStatus.className = exportAvailable
+    ? "status-pill status-ok"
+    : "status-pill status-error";
   syncDownloadState();
 }
 
 function syncDownloadState() {
-  downloadButton.disabled = !(currentIsValid && backendAvailable);
-  downloadButton.textContent = backendAvailable
-    ? DOWNLOAD_BUTTON_LABEL
-    : STATIC_PREVIEW_BUTTON_LABEL;
-  downloadButton.title = backendAvailable
-    ? "将当前 Mermaid 导出成可编辑的 PowerPoint 文件。"
-    : OFFLINE_EXPORT_MESSAGE;
-}
-
-function resolveApiUrl(path) {
-  return new URL(path, window.location.href).toString();
+  downloadButton.disabled = !(currentIsValid && exportAvailable);
+  downloadButton.textContent = DOWNLOAD_BUTTON_LABEL;
+  downloadButton.title = exportAvailable
+    ? "在当前浏览器里直接生成并下载可编辑的 PowerPoint 文件。"
+    : EXPORT_LIBRARY_MISSING_MESSAGE;
 }
 
 function formatError(error) {
@@ -227,6 +189,14 @@ function formatError(error) {
 function normalizeFileName(input) {
   const trimmed = (input || "mermaid-diagram").trim();
   return trimmed.toLowerCase().endsWith(".pptx") ? trimmed : `${trimmed}.pptx`;
+}
+
+function normalizePresentationTitle(input) {
+  return normalizeFileName(input).replace(/\.pptx$/i, "");
+}
+
+function updatePreviewBackground() {
+  previewFrame.style.setProperty("--preview-paper", backgroundInput.value);
 }
 
 function debounce(fn, waitMs) {

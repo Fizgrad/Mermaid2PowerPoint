@@ -312,6 +312,7 @@ select:focus {
 }
 
 .preview-frame {
+  --preview-paper: #ffffff;
   display: grid;
   place-items: center;
   flex: 1;
@@ -320,7 +321,7 @@ select:focus {
   border: 1px dashed var(--line-strong);
   border-radius: calc(var(--radius-lg) + 2px);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 250, 241, 0.85)),
+    linear-gradient(180deg, color-mix(in srgb, var(--preview-paper) 78%, white), color-mix(in srgb, var(--preview-paper) 92%, #f7efe1)),
     linear-gradient(90deg, rgba(23, 34, 28, 0.03) 1px, transparent 1px),
     linear-gradient(rgba(23, 34, 28, 0.03) 1px, transparent 1px);
   background-size: auto, 18px 18px, 18px 18px;

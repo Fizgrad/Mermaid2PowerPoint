@@ -2,9 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createAppServer } from "../server.js";
-import { readSlideXml } from "./helpers.js";
-
-test("web export API returns a downloadable editable PPTX", async () => {
+test("web server serves the browser export shell and pptx bundle", async () => {
   const server = createAppServer();
 
   await new Promise<void>((resolvePromise) => {
@@ -14,33 +12,17 @@ test("web export API returns a downloadable editable PPTX", async () => {
   try {
     const address = server.address();
     assert(address && typeof address === "object");
-    const response = await fetch(`http://127.0.0.1:${address.port}/api/export`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        fileName: "web-export",
-        mermaidCode: `flowchart TD
-  A[Start] --> B{Check input}
-  B --> C[Done]
-`,
-        theme: "default",
-      }),
-    });
+    const indexResponse = await fetch(`http://127.0.0.1:${address.port}/`);
+    const indexHtml = await indexResponse.text();
 
-    assert.equal(response.status, 200);
-    assert.match(
-      response.headers.get("content-type") ?? "",
-      /application\/vnd\.openxmlformats-officedocument\.presentationml\.presentation/
-    );
+    assert.equal(indexResponse.status, 200);
+    assert.match(indexHtml, /Mermaid2PowerPoint/);
+    assert.match(indexHtml, /vendor\/pptxgenjs\/pptxgen\.bundle\.js/);
 
-    const arrayBuffer = await response.arrayBuffer();
-    const outputPath = `/tmp/server-api-export-${Date.now()}.pptx`;
-    await import("node:fs/promises").then((fs) => fs.writeFile(outputPath, Buffer.from(arrayBuffer)));
-    const slideXml = await readSlideXml(outputPath);
-    assert.equal(slideXml.includes("<p:pic>"), false);
-    assert.match(slideXml, /<a:t>Check input<\/a:t>/);
+    const bundleResponse = await fetch(`http://127.0.0.1:${address.port}/vendor/pptxgenjs/pptxgen.bundle.js`);
+    const bundleBody = await bundleResponse.text();
+    assert.equal(bundleResponse.status, 200);
+    assert.match(bundleBody, /PptxGenJS/);
   } finally {
     await new Promise<void>((resolvePromise, rejectPromise) => {
       server.close((error) => {

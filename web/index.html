@@ -10,17 +10,17 @@
     <div class="page-shell">
       <header class="hero">
         <div class="hero-copy">
-          <p class="eyebrow">Mermaid to PowerPoint</p>
-          <h1>把 Mermaid 直接变成可编辑的 PPT</h1>
+          <p class="eyebrow">Pure Browser PPT Export</p>
+          <h1>Mermaid2PowerPoint</h1>
           <p class="lede">
-            在网页里输入 Mermaid，实时做语法检查和预览，然后下载真正可编辑的
+            在网页里输入 Mermaid，实时做语法检查和预览，然后在浏览器里直接下载真正可编辑的
             <code>.pptx</code> 文件。
           </p>
         </div>
         <div class="hero-note">
           <p>优先支持 Mermaid flowchart。</p>
           <p>支持常见节点、subgraph、图片节点和曲线边。</p>
-          <p>GitHub Pages 只提供预览，导出 PPT 需要连接后端。</p>
+          <p>GitHub Pages 上也可以直接导出可编辑 PPT。</p>
         </div>
       </header>
 
@@ -33,7 +33,7 @@
             </div>
             <div class="status-stack">
               <div id="syntax-status" class="status-pill status-idle">等待输入</div>
-              <div id="backend-status" class="status-pill status-idle">检查导出服务中</div>
+              <div id="export-status" class="status-pill status-idle">准备浏览器导出</div>
             </div>
           </div>
 
@@ -95,6 +95,7 @@
       </main>
     </div>
 
+    <script src="./vendor/pptxgenjs/pptxgen.bundle.js"></script>
     <script type="module" src="./app.js"></script>
   </body>
 </html>

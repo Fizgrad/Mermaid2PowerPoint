@@ -2,16 +2,17 @@
 
 将 Mermaid flowchart 转成真正可编辑的 PowerPoint 原生 Shape，而不是图片。
 
-网页里直接写 Mermaid，实时语法检查和预览，然后下载可编辑的 `.pptx`。
+网页里直接写 Mermaid，实时语法检查和预览，然后在浏览器里直接下载可编辑的 `.pptx`。
 
 ## 项目亮点
 
 - 输出的是 PowerPoint 原生 shape、text 和 path，不是截图
 - 支持网页、CLI、Node API 三种使用方式
 - 支持实时 Mermaid 编辑、语法检查和 SVG 预览
+- GitHub Pages 上也能直接在浏览器里导出 PPT
 - 支持常见 Mermaid 节点形状、subgraph/cluster、图片节点
 - 支持带主题色的 edge label、彩色边框和曲线路径
-- 带回归测试、CI 和 GitHub Pages 静态预览
+- 带回归测试、CI 和 GitHub Pages 发布
 
 ## 当前支持
 
@@ -45,7 +46,7 @@
 - `src/svgPath.ts`: SVG path 命令解析和几何边界计算
 - `src/pptx.ts`: SVG 坐标到 PptxGenJS 原生 shape 的映射
 - `src/mermaidCliRenderer.ts`: 调用 `mmdc` 把 `.mmd` 渲染成 SVG
-- `src/server.ts`: 本地网页服务和 `/api/export` 下载接口
+- `src/server.ts`: 本地静态网页服务
 - `src/cli.ts`: 命令行入口
 - `src/test/`: 解析、导出、端到端和 Web API 回归测试
 - `examples/`: 常见 Mermaid 示例和回归 fixture
@@ -81,13 +82,7 @@ http://127.0.0.1:3000
 - Mermaid 输入编辑
 - 实时语法检查
 - 浏览器内 SVG 预览
-- 调用本地后端生成可编辑 PPT 并下载
-
-如果你在容器、CI 或受限 Linux 环境里运行网页服务，建议这样启动：
-
-```bash
-MERMAID_NO_SANDBOX=1 npm run dev
-```
+- 浏览器内直接生成可编辑 PPT 并下载
 
 生产运行方式：
 
@@ -166,7 +161,7 @@ npm test
 - 曲线路径和 edge label 回归测试
 - SVG -> PPTX 原生 geometry 导出测试
 - `.mmd -> .pptx` 端到端测试
-- 网页 `/api/export` 接口集成测试
+- 网页静态服务和浏览器导出资源测试
 
 ## GitHub Pages
 
@@ -174,15 +169,13 @@ npm test
 
 - [.github/workflows/pages.yml](/home/david/Mermaid2PowerPoint/.github/workflows/pages.yml)
 
-Pages 会发布静态网页编辑器和预览界面。
+Pages 会发布静态网页编辑器，并直接支持浏览器内导出 PPT。
 
 需要注意：
 
 - 第一次使用自定义 Pages 工作流时，需要在仓库 `Settings -> Pages -> Source` 里选择 `GitHub Actions`
-- GitHub Pages 只能托管静态页面，不能直接运行当前项目的 Node 导出 API
-- 所以 Pages 上支持 Mermaid 编辑、语法检查、预览
-- Pages 上默认不直接导出 PPT
-- 真正导出可编辑 PPT 仍需要本地运行 `npm run dev` 或单独部署一个导出后端
+- Pages 上导出逻辑现在完全在浏览器里执行，不依赖 Node 后端
+- 图片节点若引用跨域资源，浏览器仍可能因为 CORS 无法把图片嵌入 PPT
 
 如果你想让 CI 自动帮你启用 Pages，可以额外创建一个 `PAGES_ENABLEMENT_TOKEN` secret。这个 token 需要有足够的仓库和 Pages 管理权限。
 

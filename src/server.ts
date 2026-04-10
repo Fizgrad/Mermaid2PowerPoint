@@ -1,25 +1,15 @@
 import { createReadStream } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { extname, join, normalize, resolve } from "node:path";
+import { extname, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-
-import { convertMermaidCodeToPptxBuffer } from "./index.js";
 
 const currentDir = fileURLToPath(new URL(".", import.meta.url));
 const repoRoot = resolve(currentDir, "..");
 const webRoot = resolve(repoRoot, "web");
 const mermaidVendorRoot = resolve(repoRoot, "node_modules", "mermaid", "dist");
+const pptxgenVendorRoot = resolve(repoRoot, "node_modules", "pptxgenjs", "dist");
 const defaultPort = Number.parseInt(process.env.PORT ?? "3000", 10);
-
-interface ExportRequestBody {
-  background?: string;
-  fileName?: string;
-  mermaidCode?: string;
-  scale?: number;
-  slidePaddingPx?: number;
-  theme?: string;
-}
 
 export function createAppServer() {
   return createServer(async (request, response) => {
@@ -39,19 +29,15 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
   const pathname = decodeURIComponent(url.pathname);
 
-  if (method === "GET" && pathname === "/api/health") {
-    sendJson(response, 200, { ok: true });
-    return;
-  }
-
-  if (method === "POST" && pathname === "/api/export") {
-    await handleExport(request, response);
-    return;
-  }
-
   if (isReadMethod && pathname.startsWith("/vendor/mermaid/")) {
     const relativePath = pathname.slice("/vendor/mermaid/".length);
     await serveStaticFile(response, mermaidVendorRoot, relativePath, method);
+    return;
+  }
+
+  if (isReadMethod && pathname.startsWith("/vendor/pptxgenjs/")) {
+    const relativePath = pathname.slice("/vendor/pptxgenjs/".length);
+    await serveStaticFile(response, pptxgenVendorRoot, relativePath, method);
     return;
   }
 
@@ -62,41 +48,6 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   }
 
   sendJson(response, 405, { error: "Method not allowed." });
-}
-
-async function handleExport(request: IncomingMessage, response: ServerResponse): Promise<void> {
-  const body = await readJsonBody<ExportRequestBody>(request);
-  const mermaidCode = body.mermaidCode?.trim();
-
-  if (!mermaidCode) {
-    sendJson(response, 400, { error: "mermaidCode is required." });
-    return;
-  }
-
-  const safeFileName = normalizePptxFileName(body.fileName);
-  const noSandbox = isTruthy(process.env.MERMAID_NO_SANDBOX);
-  const pptxBuffer = await convertMermaidCodeToPptxBuffer(mermaidCode, {
-    render: {
-      background: body.background,
-      noSandbox,
-      scale: body.scale,
-      theme: body.theme,
-    },
-    convert: {
-      author: "Mermaid2PowerPoint Web",
-      company: "Mermaid2PowerPoint",
-      slidePaddingPx: body.slidePaddingPx,
-      title: safeFileName.replace(/\.pptx$/i, ""),
-    },
-  });
-
-  response.writeHead(200, {
-    "Cache-Control": "no-store",
-    "Content-Disposition": `attachment; filename="${safeFileName}"`,
-    "Content-Length": String(pptxBuffer.length),
-    "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  });
-  response.end(pptxBuffer);
 }
 
 async function serveStaticFile(
@@ -135,30 +86,6 @@ async function serveStaticFile(
   }
 }
 
-function readJsonBody<T>(request: IncomingMessage): Promise<T> {
-  return new Promise((resolvePromise, rejectPromise) => {
-    let body = "";
-
-    request.on("data", (chunk: Buffer | string) => {
-      body += chunk.toString();
-      if (body.length > 1024 * 1024) {
-        rejectPromise(new Error("Request body too large."));
-        request.destroy();
-      }
-    });
-
-    request.on("end", () => {
-      try {
-        resolvePromise((body ? JSON.parse(body) : {}) as T);
-      } catch {
-        rejectPromise(new Error("Invalid JSON request body."));
-      }
-    });
-
-    request.on("error", rejectPromise);
-  });
-}
-
 function sendJson(response: ServerResponse, statusCode: number, payload: unknown): void {
   const body = JSON.stringify(payload);
   response.writeHead(statusCode, {
@@ -167,20 +94,6 @@ function sendJson(response: ServerResponse, statusCode: number, payload: unknown
     "Content-Type": "application/json; charset=utf-8",
   });
   response.end(body);
-}
-
-function normalizePptxFileName(fileName: string | undefined): string {
-  const base = (fileName ?? "mermaid-diagram")
-    .trim()
-    .replace(/[^\w.-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
-  const normalized = base || "mermaid-diagram";
-  return normalized.toLowerCase().endsWith(".pptx") ? normalized : `${normalized}.pptx`;
-}
-
-function isTruthy(value: string | undefined): boolean {
-  return value === "1" || value === "true";
 }
 
 function getContentType(filePath: string): string {
