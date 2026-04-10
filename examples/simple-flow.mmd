@@ -1,0 +1,7 @@
+flowchart TD
+    A[Start] --> B{Check input}
+    B -->|valid| C[Render Mermaid]
+    B -->|invalid| D[Show error]
+    C --> E[Create PPT slide]
+    D --> E
+    E --> F[Done]

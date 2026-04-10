@@ -1,0 +1,29 @@
+{
+  "name": "mermaid2powerpoint",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Convert Mermaid flowchart SVG into editable PowerPoint shapes",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "dev": "tsx src/server.ts",
+    "start": "node dist/server.js",
+    "pages:build": "node scripts/build-pages.mjs",
+    "cli": "tsx src/cli.ts",
+    "example:mock": "npm run build && node dist/examples/mockSvgDemo.js",
+    "test": "npm run build && node --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "mermaid": "^11.14.0",
+    "pptxgenjs": "^3.12.0"
+  },
+  "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^11.12.0",
+    "@types/node": "^20.17.50",
+    "jszip": "^3.10.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

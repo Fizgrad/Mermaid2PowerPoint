@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mermaid2PowerPoint</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Editable PowerPoint Export</p>
+          <h1>把 Mermaid 流程图直接变成可编辑的 PPT 原生图形</h1>
+          <p class="lede">
+            在网页里输入 Mermaid，实时做语法检查和预览，然后下载真正可编辑的
+            <code>.pptx</code> 文件。
+          </p>
+        </div>
+        <div class="hero-note">
+          <p>当前 MVP 优先支持 Mermaid flowchart。</p>
+          <p>支持矩形、菱形、文本、箭头折线。</p>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="panel editor-panel">
+          <div class="panel-header">
+            <div>
+              <p class="panel-kicker">Editor</p>
+              <h2>Mermaid 输入</h2>
+            </div>
+            <div class="status-stack">
+              <div id="syntax-status" class="status-pill status-idle">等待输入</div>
+              <div id="backend-status" class="status-pill status-idle">检查导出服务中</div>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <label class="field compact-field">
+              <span>主题</span>
+              <select id="theme-select">
+                <option value="default">default</option>
+                <option value="forest">forest</option>
+                <option value="neutral">neutral</option>
+                <option value="dark">dark</option>
+              </select>
+            </label>
+
+            <label class="field compact-field">
+              <span>背景</span>
+              <input id="background-input" type="color" value="#ffffff" />
+            </label>
+
+            <label class="field compact-field">
+              <span>文件名</span>
+              <input id="filename-input" type="text" value="mermaid-diagram.pptx" />
+            </label>
+
+            <button id="sample-button" class="ghost-button" type="button">载入示例</button>
+          </div>
+
+          <label class="field editor-field">
+            <span>Mermaid 代码</span>
+            <textarea id="editor" spellcheck="false"></textarea>
+          </label>
+
+          <div class="action-row">
+            <button id="download-button" class="primary-button" type="button" disabled>
+              生成可编辑 PPT
+            </button>
+            <p id="helper-text" class="helper-text">
+              先通过语法检查后才允许导出。
+            </p>
+          </div>
+        </section>
+
+        <section class="panel preview-panel">
+          <div class="panel-header">
+            <div>
+              <p class="panel-kicker">Preview</p>
+              <h2>渲染预览</h2>
+            </div>
+          </div>
+
+          <div id="preview-frame" class="preview-frame">
+            <div class="empty-state">
+              <p>在左侧输入 Mermaid，预览会显示在这里。</p>
+            </div>
+          </div>
+
+          <div id="error-box" class="error-box" hidden></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

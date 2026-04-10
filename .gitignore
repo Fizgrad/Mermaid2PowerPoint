@@ -1,0 +1,11 @@
+node_modules/
+dist/
+tmp/
+pages-dist/
+.codex
+*.pptx
+*.png
+*.emf
+*.pdf
+output.svg
+.DS_Store
