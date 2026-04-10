@@ -27,14 +27,24 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run pages:build
+      - name: Detect Pages enablement token
+        id: pages_token
+        env:
+          PAGES_ENABLEMENT_TOKEN: ${{ secrets.PAGES_ENABLEMENT_TOKEN }}
+        run: |
+          if [ -n "$PAGES_ENABLEMENT_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Optionally enable GitHub Pages
-        if: ${{ secrets.PAGES_ENABLEMENT_TOKEN != '' }}
+        if: ${{ steps.pages_token.outputs.enabled == 'true' }}
         uses: actions/configure-pages@v5
         with:
           token: ${{ secrets.PAGES_ENABLEMENT_TOKEN }}
           enablement: true
       - name: Pages setup note
-        if: ${{ secrets.PAGES_ENABLEMENT_TOKEN == '' }}
+        if: ${{ steps.pages_token.outputs.enabled != 'true' }}
         run: |
           echo "If this is the first Pages deployment, set Settings > Pages > Source to GitHub Actions."
           echo "To auto-enable Pages from CI, add a PAGES_ENABLEMENT_TOKEN secret with repo/pages admin permissions."
