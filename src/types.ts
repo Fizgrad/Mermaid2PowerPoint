@@ -3,6 +3,13 @@ export interface PointPx {
   y: number;
 }
 
+export interface BoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface ViewBox {
   minX: number;
   minY: number;
@@ -29,6 +36,53 @@ export interface TextStyle {
   align?: "left" | "center" | "right";
 }
 
+export interface PathMoveTo {
+  type: "moveTo";
+  x: number;
+  y: number;
+}
+
+export interface PathLineTo {
+  type: "lineTo";
+  x: number;
+  y: number;
+}
+
+export interface PathQuadraticTo {
+  type: "quadraticTo";
+  x1: number;
+  y1: number;
+  x: number;
+  y: number;
+}
+
+export interface PathCubicTo {
+  type: "cubicTo";
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  x: number;
+  y: number;
+}
+
+export interface PathClose {
+  type: "close";
+}
+
+export type PathCommandPx =
+  | PathMoveTo
+  | PathLineTo
+  | PathQuadraticTo
+  | PathCubicTo
+  | PathClose;
+
+export interface ParsedPathGeometry {
+  bounds: BoundingBox;
+  commands: PathCommandPx[];
+  hasCurves: boolean;
+}
+
 export interface ParsedText {
   id?: string;
   role: "node" | "edge" | "free";
@@ -38,11 +92,12 @@ export interface ParsedText {
   width: number;
   height: number;
   style: TextStyle;
+  boxStyle?: ShapeStyle;
 }
 
 export interface ParsedNode {
   id: string;
-  kind: "rect" | "diamond";
+  kind: "rect" | "roundRect" | "ellipse" | "diamond" | "hexagon";
   x: number;
   y: number;
   width: number;
@@ -54,6 +109,7 @@ export interface ParsedNode {
 export interface ParsedEdge {
   id: string;
   points: PointPx[];
+  geometry?: ParsedPathGeometry;
   style: ShapeStyle;
   startArrow?: "triangle";
   endArrow?: "triangle";

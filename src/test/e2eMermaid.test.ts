@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 
 import { convertMermaidFileToPptx } from "../index.js";
-import { getSampleMermaidPath, readSlideXml, withTempDir } from "./helpers.js";
+import { getFixtureMermaidPath, getSampleMermaidPath, readSlideXml, withTempDir } from "./helpers.js";
 
 test("convertMermaidFileToPptx renders Mermaid source and writes editable PPT output", async () => {
   await withTempDir(async (dir) => {
@@ -20,5 +20,26 @@ test("convertMermaidFileToPptx renders Mermaid source and writes editable PPT ou
     assert.equal(slideXml.includes("<p:pic>"), false);
     assert.match(slideXml, /<a:prstGeom prst="diamond"/);
     assert.match(slideXml, /<a:t>Check input<\/a:t>/);
+  });
+});
+
+test("convertMermaidFileToPptx supports richer Mermaid fixtures end to end", async () => {
+  await withTempDir(async (dir) => {
+    const shapesOutput = join(dir, "shape-regression.pptx");
+    const curvedOutput = join(dir, "curved-basis.pptx");
+
+    await convertMermaidFileToPptx(getFixtureMermaidPath("shape-regression"), shapesOutput, {
+      noSandbox: true,
+    });
+    await convertMermaidFileToPptx(getFixtureMermaidPath("curved-basis"), curvedOutput, {
+      noSandbox: true,
+    });
+
+    const shapesSlideXml = await readSlideXml(shapesOutput);
+    const curvedSlideXml = await readSlideXml(curvedOutput);
+
+    assert.match(shapesSlideXml, /<a:prstGeom prst="roundRect"/);
+    assert.match(shapesSlideXml, /<a:prstGeom prst="ellipse"/);
+    assert.match(curvedSlideXml, /<a:custGeom>/);
   });
 });

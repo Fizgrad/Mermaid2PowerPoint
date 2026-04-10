@@ -10,8 +10,11 @@ import { renderMermaidFileToSvg } from "../mermaidCliRenderer.js";
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(currentDir, "../..");
 const sampleMermaidPath = join(repoRoot, "examples", "simple-flow.mmd");
+const shapeRegressionPath = join(repoRoot, "examples", "shape-regression.mmd");
+const styledLinksPath = join(repoRoot, "examples", "styled-links.mmd");
+const curvedBasisPath = join(repoRoot, "examples", "curved-basis.mmd");
 
-let sampleSvgPromise: Promise<string> | undefined;
+const svgCache = new Map<string, Promise<string>>();
 
 export function getRepoRoot(): string {
   return repoRoot;
@@ -22,10 +25,39 @@ export function getSampleMermaidPath(): string {
 }
 
 export function getSampleSvg(): Promise<string> {
-  sampleSvgPromise ??= renderMermaidFileToSvg(sampleMermaidPath, {
+  return getFixtureSvg("simple-flow");
+}
+
+export function getFixtureMermaidPath(
+  fixtureName: "simple-flow" | "shape-regression" | "styled-links" | "curved-basis"
+): string {
+  switch (fixtureName) {
+    case "shape-regression":
+      return shapeRegressionPath;
+    case "styled-links":
+      return styledLinksPath;
+    case "curved-basis":
+      return curvedBasisPath;
+    case "simple-flow":
+    default:
+      return sampleMermaidPath;
+  }
+}
+
+export function getFixtureSvg(
+  fixtureName: "simple-flow" | "shape-regression" | "styled-links" | "curved-basis"
+): Promise<string> {
+  const mermaidPath = getFixtureMermaidPath(fixtureName);
+  const cached = svgCache.get(mermaidPath);
+  if (cached) {
+    return cached;
+  }
+
+  const promise = renderMermaidFileToSvg(mermaidPath, {
     noSandbox: true,
   });
-  return sampleSvgPromise;
+  svgCache.set(mermaidPath, promise);
+  return promise;
 }
 
 export async function withTempDir<T>(run: (dir: string) => Promise<T>): Promise<T> {

@@ -1,0 +1,10 @@
+flowchart LR
+    A([Round]) -->|yes| B((Circle))
+    B -->|no| C{{Hex}}
+    classDef hot fill:#FFD7BA,stroke:#C45C2C,stroke-width:3px,color:#4A1E0E;
+    classDef cool fill:#D9F4FF,stroke:#12738B,stroke-width:2px,color:#083B47;
+    class A hot;
+    class B cool;
+    class C hot;
+    linkStyle 0 stroke:#C45C2C,stroke-width:3px;
+    linkStyle 1 stroke:#12738B,stroke-width:2px;

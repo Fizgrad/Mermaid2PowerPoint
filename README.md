@@ -2,61 +2,62 @@
 
 将 Mermaid flowchart 转成真正可编辑的 PowerPoint 原生 Shape，而不是图片。
 
-在线写 Mermaid，实时看语法和预览，然后下载可编辑的 `.pptx`。
+网页里直接写 Mermaid，实时语法检查和预览，然后下载可编辑的 `.pptx`。
 
-## 为什么这个项目值得用
+## 卖点
 
-- 输出的是 PowerPoint 原生 shape/text，不是截图
-- 网页里直接编辑 Mermaid，实时语法检查
-- 支持本地 Web 界面、CLI、Node API 三种使用方式
-- 适合做流程图转汇报材料、产品方案、售前提案
-- 已带自动化测试和 GitHub Actions CI
+- 输出的是 PowerPoint 原生 shape、text 和 path，不是截图
+- 支持网页、CLI、Node API 三种使用方式
+- 支持实时 Mermaid 编辑、语法检查和 SVG 预览
+- 支持更多常见 Mermaid 节点形状和带主题色的 edge label
+- 带回归测试、CI 和 GitHub Pages 静态预览
 
-当前 MVP 走的是一条务实路线：
+## 当前支持
 
-1. 先把 Mermaid 渲染成 SVG，拿到已经算好的布局坐标。
-2. 解析 SVG 中的节点、文本、连线。
-3. 用 `pptxgenjs` 在 PPT 里重建矩形、菱形、文本框和箭头线段。
+- `flowchart` / `graph` 类 Mermaid 图
+- 矩形、圆角矩形、圆/椭圆、菱形、六边形节点
+- `foreignObject` 和普通 SVG `<text>` 文本
+- `classDef` 节点填充色、边框色、字号和文本色
+- `linkStyle` 线条颜色、粗细、虚线
+- edge label 背景框、彩色边框和主题色文本
+- 直线、折线和常见三次/二次曲线路径
+- 导出为原生 PowerPoint geometry，不嵌入图片
 
-## 当前能力
+当前实现走的是一条稳定路线：
 
-- 支持 `flowchart` / `graph` 类 Mermaid SVG
-- 支持矩形节点 `<rect>`
-- 支持判断节点 `<polygon>` 并映射成菱形
-- 支持 Mermaid 的 `foreignObject` 文本标签
-- 支持普通 SVG `<text>`
-- 支持连接线 `<path>`，优先使用 Mermaid 的 `data-points` 还原折线
-- 输出为原生 PowerPoint shape/text，不嵌入图片
+1. 先把 Mermaid 渲染成 SVG，拿到 Mermaid 已经计算好的布局坐标。
+2. 解析 SVG 中的节点、文本、样式和边线路径。
+3. 用 `pptxgenjs` 在 PPT 里重建原生 shape、text 和曲线路径。
 
 ## 当前限制
 
-- 目前只针对基础 flowchart 做了 MVP 级支持
-- 不保证复杂自定义节点、图标、子图、泳道、时序图、脑图等 Mermaid 类型正确映射
-- 曲线路径会优先降级为折线段，目标是“可编辑”和“结构正确”，不是 100% 还原 SVG 曲线
-- 文本样式目前只保留常用信息：字体、字号、颜色、对齐
+- 重点支持 `flowchart`，不保证时序图、脑图、er 图、甘特图等都能正确映射
+- 复杂图标、图片节点、泳道、子图、部分特殊 marker 还没有完整覆盖
+- 对极少数 SVG `path` 指令仍会保守降级，目标是保持可编辑和结构正确
+- 不是逐像素复刻 SVG，重点是“PPT 可编辑”而不是“SVG 100% 像素级一致”
 
 ## 项目结构
 
-- `src/parseSvg.ts`: Mermaid SVG 解析器，包含 `parseRect`、`parseText`、`parsePath`
-- `src/pptx.ts`: SVG 坐标到 PptxGenJS shape 的映射
+- `src/parseSvg.ts`: Mermaid SVG 解析器
+- `src/svgPath.ts`: SVG path 命令解析和几何边界计算
+- `src/pptx.ts`: SVG 坐标到 PptxGenJS 原生 shape 的映射
 - `src/mermaidCliRenderer.ts`: 调用 `mmdc` 把 `.mmd` 渲染成 SVG
 - `src/server.ts`: 本地网页服务和 `/api/export` 下载接口
 - `src/cli.ts`: 命令行入口
-- `src/examples/mockSvgDemo.ts`: 用 mock SVG 生成可编辑 PPT 的最小示例
+- `src/test/`: 解析、导出、端到端和 Web API 回归测试
+- `examples/`: 常见 Mermaid 示例和回归 fixture
 - `web/`: 网页编辑器、预览界面和下载前端
 - `scripts/build-pages.mjs`: 生成 GitHub Pages 静态站点产物
 
 ## 安装
 
-推荐使用 Node.js 22。Node.js 20 目前也能跑，但安装 `@mermaid-js/mermaid-cli` 时可能会看到上游依赖的 engine warning。
+推荐使用 Node.js 22。
 
 ```bash
 npm install
 ```
 
-仓库已经把 `@mermaid-js/mermaid-cli` 放进 `devDependencies`，所以普通 `npm install` 就会一起装好。
-
-如果你想改成全局安装，也可以让 `mmdc` 在 `PATH` 里可见，或者通过 `--mmdc-path` 显式指定。
+仓库已经把 `@mermaid-js/mermaid-cli` 放进 `devDependencies`，普通 `npm install` 就会一起装好。
 
 ## 用法
 
@@ -66,7 +67,7 @@ npm install
 npm run dev
 ```
 
-然后打开：
+打开：
 
 ```text
 http://127.0.0.1:3000
@@ -92,50 +93,21 @@ npm run build
 npm start
 ```
 
-### GitHub Pages
-
-仓库已经带了 GitHub Pages 工作流：
-
-- [.github/workflows/pages.yml](/home/david/Mermaid2PowerPoint/.github/workflows/pages.yml)
-
-它会把 `web/` 和 Mermaid 浏览器运行时打包成静态站点并发布到 Pages。
-
-需要注意：
-
-- GitHub Pages 只能托管静态页面，不能运行当前项目的 Node 导出 API
-- 所以 Pages 上支持 Mermaid 编辑、语法检查、预览
-- Pages 上默认不支持直接导出 PPT，下载按钮会自动禁用
-- 真正导出可编辑 PPT 仍然需要本地运行 `npm run dev` 或你后续部署一个独立后端
-
-本地预构建 Pages 产物：
+### 2. 从 Mermaid 源文件直接转 PPT
 
 ```bash
-npm run pages:build
+npm run build
+node dist/cli.js examples/shape-regression.mmd -o editable-flow.pptx --no-sandbox
 ```
 
-### 2. 直接把 SVG 转成可编辑 PPT
+### 3. 从 SVG 直接转 PPT
 
 ```bash
 npm run build
 node dist/cli.js output.svg --input svg -o editable-output.pptx
 ```
 
-### 3. 从 Mermaid 源文件直接转
-
-```bash
-npm run build
-node dist/cli.js examples/simple-flow.mmd -o editable-flow.pptx
-```
-
-如果你在容器、CI 或受限 Linux 环境里运行，建议加上：
-
-```bash
-node dist/cli.js examples/simple-flow.mmd -o editable-flow.pptx --no-sandbox
-```
-
-代码里也会在检测到 Chromium sandbox 启动失败时自动重试一次 no-sandbox 配置。
-
-可选参数：
+常用参数：
 
 - `--theme <name>`: Mermaid 主题
 - `--background <color>`: Mermaid 背景色
@@ -144,6 +116,8 @@ node dist/cli.js examples/simple-flow.mmd -o editable-flow.pptx --no-sandbox
 - `--mmdc-path <path>`: 显式指定 `mmdc`
 - `--puppeteer-config <path>`: 传给 Mermaid CLI 的 Puppeteer 配置文件
 - `--no-sandbox`: 给 Chromium 增加 `--no-sandbox --disable-setuid-sandbox`
+
+代码里也会在检测到 Chromium sandbox 启动失败时自动重试一次 no-sandbox。
 
 ## 编程接口
 
@@ -156,14 +130,22 @@ const svg = `<svg viewBox="0 0 200 100">...</svg>`;
 await convertSvgToPptx(svg, "diagram.pptx");
 ```
 
-### Mock SVG 示例
+### `convertMermaidCodeToPptxBuffer(mermaidCode, options)`
 
-```bash
-npm run build
-node dist/examples/mockSvgDemo.js
+```ts
+import { convertMermaidCodeToPptxBuffer } from "./dist/index.js";
+
+const buffer = await convertMermaidCodeToPptxBuffer("flowchart TD\nA-->B");
 ```
 
-这会生成一个只包含 2 个矩形节点和 1 条连接线的 `mock-flowchart.pptx`。
+## 回归示例
+
+仓库里现在带了几组常见 Mermaid fixture：
+
+- `examples/simple-flow.mmd`: 基础流程图
+- `examples/shape-regression.mmd`: 圆角矩形、圆、六边形
+- `examples/styled-links.mmd`: `classDef`、彩色边框和 edge label
+- `examples/curved-basis.mmd`: basis 曲线边
 
 ## 测试
 
@@ -171,26 +153,49 @@ node dist/examples/mockSvgDemo.js
 npm test
 ```
 
-当前测试包含：
+当前测试覆盖：
 
 - Mermaid SVG 解析测试
-- SVG -> PPTX 原生 shape 导出测试
+- 节点形状和样式回归测试
+- 曲线路径和 edge label 回归测试
+- SVG -> PPTX 原生 geometry 导出测试
 - `.mmd -> .pptx` 端到端测试
 - 网页 `/api/export` 接口集成测试
 
+## GitHub Pages
+
+仓库已经带了 GitHub Pages 工作流：
+
+- [.github/workflows/pages.yml](/home/david/Mermaid2PowerPoint/.github/workflows/pages.yml)
+
+Pages 会发布静态网页编辑器和预览界面。
+
+需要注意：
+
+- GitHub Pages 只能托管静态页面，不能直接运行当前项目的 Node 导出 API
+- 所以 Pages 上支持 Mermaid 编辑、语法检查、预览
+- Pages 上默认不直接导出 PPT
+- 真正导出可编辑 PPT 仍需要本地运行 `npm run dev` 或单独部署一个导出后端
+
+本地预构建 Pages 产物：
+
+```bash
+npm run pages:build
+```
+
 ## 验证结果
 
-已经在本地完成了这些 smoke test：
+当前版本已经本地验证：
 
-- `node dist/examples/mockSvgDemo.js`
-- `node dist/cli.js output.svg --input svg -o editable-output.pptx`
-- `npm run dev` 后访问首页并通过 `/api/export` 下载 PPT
+- `npm run check`
+- `npm test`
+- `npm run pages:build`
 
-生成的 PPTX 中没有 `<p:pic>` 图片对象，只有 PowerPoint shape/text 节点，说明输出的是原生可编辑元素。
+生成的 PPTX 中没有 `<p:pic>` 图片对象，只有 PowerPoint 的原生 shape、text 和自定义 geometry 节点。
 
 ## GitHub CI
 
-仓库已经增加了 GitHub Actions 工作流：
+仓库包含：
 
 - [.github/workflows/ci.yml](/home/david/Mermaid2PowerPoint/.github/workflows/ci.yml)
 - [.github/workflows/pages.yml](/home/david/Mermaid2PowerPoint/.github/workflows/pages.yml)
@@ -198,17 +203,4 @@ npm test
 推到 GitHub 后：
 
 - `CI` 会自动执行 `npm ci` 和 `npm test`
-- `Pages` 会在 `main` 分支推送后发布静态网页
-
-## 后续建议
-
-下一步值得补的能力：
-
-1. 支持更多 Mermaid 节点形状，例如圆角矩形、圆、六边形
-2. 补 edge label 的背景框、主题色和彩色边框
-3. 改进曲线路径映射，减少对折线降级
-4. 为常见 Mermaid 示例补一组回归测试
-
-## 旧方案
-
-仓库里的 `mermaid2ppt.py` 仍然保留，作为旧的“图片/EMF 嵌入 PPT”方案参考。新的 TypeScript 实现才是可编辑原生 Shape 的主线。
+- `Pages` 会在主分支推送后发布静态网页

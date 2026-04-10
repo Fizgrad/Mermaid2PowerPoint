@@ -1,11 +1,14 @@
 import { load } from "cheerio";
 import type { AnyNode, Element } from "domhandler";
 
+import { geometryToPoints, parseSvgPathData, unionBoundingBoxes } from "./svgPath.js";
 import type {
+  BoundingBox,
   ColorValue,
   ParsedDiagram,
   ParsedEdge,
   ParsedNode,
+  ParsedPathGeometry,
   ParsedText,
   ShapeStyle,
   TextStyle,
@@ -16,9 +19,9 @@ import {
   normalizeWhitespace,
   parseColor,
   parseNumber,
-  parsePathEndpoints,
   parsePoints,
   parseTranslate,
+  stripCssPriority,
 } from "./utils.js";
 
 interface CssRule {
@@ -39,11 +42,10 @@ interface ResolvedStyle {
   textAnchor?: string;
 }
 
-interface BoundingBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+interface NodeShapeDescriptor {
+  kind: ParsedNode["kind"];
+  bounds: BoundingBox;
+  styleElement: Element;
 }
 
 export function parseRect(svgString: string): ParsedNode[] {
@@ -96,54 +98,105 @@ function parseNodes($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedNode
   const nodes: ParsedNode[] = [];
 
   $("g.node").each((_, element) => {
-    const shapeElement = findNodeShape($, element);
-    if (!shapeElement) {
+    const shape = parseNodeShape($, cssRules, element);
+    if (!shape) {
       return;
     }
 
     const id = $(element).attr("id") ?? `node-${nodes.length + 1}`;
-    const style = resolveShapeStyle($, cssRules, shapeElement);
     const text = parseLabelText($, cssRules, element, "node");
 
-    if (shapeElement.tagName === "rect") {
-      const box = getBoundingBoxFromRect($, shapeElement);
-      if (!box) {
-        return;
-      }
-
-      nodes.push({
-        id,
-        kind: "rect",
-        x: box.x,
-        y: box.y,
-        width: box.width,
-        height: box.height,
-        style,
-        text,
-      });
-      return;
-    }
-
-    if (shapeElement.tagName === "polygon") {
-      const box = getBoundingBoxFromPolygon($, shapeElement);
-      if (!box) {
-        return;
-      }
-
-      nodes.push({
-        id,
-        kind: "diamond",
-        x: box.x,
-        y: box.y,
-        width: box.width,
-        height: box.height,
-        style,
-        text,
-      });
-    }
+    nodes.push({
+      id,
+      kind: shape.kind,
+      x: shape.bounds.x,
+      y: shape.bounds.y,
+      width: shape.bounds.width,
+      height: shape.bounds.height,
+      style: resolveShapeStyle($, cssRules, shape.styleElement),
+      text,
+    });
   });
 
   return nodes;
+}
+
+function parseNodeShape(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  nodeElement: Element
+): NodeShapeDescriptor | undefined {
+  const directChildren = $(nodeElement)
+    .children()
+    .toArray()
+    .filter(isElement);
+
+  for (const child of directChildren) {
+    if (!hasLabelContainerClass($, child)) {
+      continue;
+    }
+
+    if (child.tagName === "rect") {
+      const bounds = getBoundingBoxFromRect($, child);
+      if (bounds) {
+        return {
+          kind: "rect",
+          bounds,
+          styleElement: child,
+        };
+      }
+    }
+
+    if (child.tagName === "circle" || child.tagName === "ellipse") {
+      const bounds = getBoundingBoxFromEllipse($, child);
+      if (bounds) {
+        return {
+          kind: "ellipse",
+          bounds,
+          styleElement: child,
+        };
+      }
+    }
+
+    if (child.tagName === "polygon") {
+      const points = parsePoints($(child).attr("points"));
+      const bounds = getBoundingBoxFromPolygon($, child, points);
+      if (bounds) {
+        return {
+          kind: classifyPolygonKind(points),
+          bounds,
+          styleElement: child,
+        };
+      }
+    }
+  }
+
+  for (const child of directChildren) {
+    if (child.tagName !== "g" || !hasRoundedOuterPathClass($, child)) {
+      continue;
+    }
+
+    const pathChildren = $(child)
+      .children("path")
+      .toArray()
+      .filter(isElement);
+    const bounds = unionBoundingBoxes(
+      pathChildren
+        .map((pathChild) => getBoundingBoxFromPath($, pathChild))
+        .filter((box): box is BoundingBox => Boolean(box))
+    );
+
+    if (bounds) {
+      const styleElement = pathChildren.find((pathChild) => hasRenderableShapeStyle($, cssRules, pathChild)) ?? child;
+      return {
+        kind: "roundRect",
+        bounds,
+        styleElement,
+      };
+    }
+  }
+
+  return undefined;
 }
 
 function parseEdges(
@@ -156,7 +209,8 @@ function parseEdges(
   $(".edgePaths path, path.flowchart-link").each((_, element) => {
     const id = $(element).attr("data-id") ?? $(element).attr("id") ?? `edge-${edges.length + 1}`;
     const style = resolveShapeStyle($, cssRules, element);
-    const points = decodePathPoints($(element).attr("data-points")) ?? parsePathEndpoints($(element).attr("d"));
+    const geometry = getAbsolutePathGeometry($, element);
+    const points = decodePathPoints($(element).attr("data-points")) ?? geometryToPoints(geometry);
 
     if (points.length < 2) {
       return;
@@ -165,6 +219,7 @@ function parseEdges(
     edges.push({
       id,
       points,
+      geometry,
       style: {
         ...style,
         fill: undefined,
@@ -191,10 +246,7 @@ function parseFloatingTexts($: ReturnType<typeof load>, cssRules: CssRule[]): Pa
   return floatingTexts;
 }
 
-function buildEdgeLabelMap(
-  $: ReturnType<typeof load>,
-  cssRules: CssRule[]
-): Map<string, ParsedText> {
+function buildEdgeLabelMap($: ReturnType<typeof load>, cssRules: CssRule[]): Map<string, ParsedText> {
   const labels = new Map<string, ParsedText>();
 
   $(".edgeLabels .label[data-id]").each((_, element) => {
@@ -247,8 +299,9 @@ function parseForeignObjectText(
   const width = parseNumber($(element).attr("width")) ?? 0;
   const height = parseNumber($(element).attr("height")) ?? 0;
   const offset = getAbsoluteTranslate(element);
-  const styleSource = $(element).find("span, p, div").first()[0] ?? element;
-  const resolvedStyle = resolveStyle($, cssRules, styleSource);
+  const textStyleSource = $(element).find("span, p, div").first()[0] ?? element;
+  const boxStyleSource = $(element).find(".labelBkg, .edgeLabel").first()[0];
+  const resolvedStyle = resolveStyle($, cssRules, textStyleSource);
 
   return {
     id: $(element).parent().attr("data-id"),
@@ -259,6 +312,7 @@ function parseForeignObjectText(
     width,
     height,
     style: resolveTextStyle(resolvedStyle),
+    boxStyle: role === "edge" ? resolveTextBoxStyle($, cssRules, boxStyleSource ?? textStyleSource) : undefined,
   };
 }
 
@@ -294,20 +348,22 @@ function parseTextElement(
   };
 }
 
-function findNodeShape($: ReturnType<typeof load>, nodeElement: Element): Element | undefined {
-  const directChildren = $(nodeElement)
-    .children()
-    .toArray()
-    .filter(isElement);
+function hasLabelContainerClass($: ReturnType<typeof load>, element: Element): boolean {
+  const classes = ($(element).attr("class") ?? "").split(/\s+/).filter(Boolean);
+  return classes.includes("label-container");
+}
 
-  return directChildren.find((child) => {
-    if (child.tagName !== "rect" && child.tagName !== "polygon") {
-      return false;
-    }
+function hasRoundedOuterPathClass($: ReturnType<typeof load>, element: Element): boolean {
+  const classes = ($(element).attr("class") ?? "").split(/\s+/).filter(Boolean);
+  return classes.includes("label-container") && classes.includes("outer-path");
+}
 
-    const classes = ($(child).attr("class") ?? "").split(/\s+/).filter(Boolean);
-    return classes.includes("label-container");
-  });
+function classifyPolygonKind(points: { x: number; y: number }[]): ParsedNode["kind"] {
+  if (points.length >= 6) {
+    return "hexagon";
+  }
+
+  return "diamond";
 }
 
 function getBoundingBoxFromRect($: ReturnType<typeof load>, element: Element): BoundingBox | undefined {
@@ -329,21 +385,127 @@ function getBoundingBoxFromRect($: ReturnType<typeof load>, element: Element): B
   };
 }
 
-function getBoundingBoxFromPolygon($: ReturnType<typeof load>, element: Element): BoundingBox | undefined {
-  const points = parsePoints($(element).attr("points"));
-  if (points.length === 0) {
+function getBoundingBoxFromEllipse($: ReturnType<typeof load>, element: Element): BoundingBox | undefined {
+  const offset = getAbsoluteTranslate(element);
+
+  if (element.tagName === "circle") {
+    const cx = parseNumber($(element).attr("cx")) ?? 0;
+    const cy = parseNumber($(element).attr("cy")) ?? 0;
+    const r = parseNumber($(element).attr("r"));
+    if (r === undefined) {
+      return undefined;
+    }
+
+    return {
+      x: offset.x + cx - r,
+      y: offset.y + cy - r,
+      width: r * 2,
+      height: r * 2,
+    };
+  }
+
+  const cx = parseNumber($(element).attr("cx")) ?? 0;
+  const cy = parseNumber($(element).attr("cy")) ?? 0;
+  const rx = parseNumber($(element).attr("rx"));
+  const ry = parseNumber($(element).attr("ry"));
+
+  if (rx === undefined || ry === undefined) {
+    return undefined;
+  }
+
+  return {
+    x: offset.x + cx - rx,
+    y: offset.y + cy - ry,
+    width: rx * 2,
+    height: ry * 2,
+  };
+}
+
+function getBoundingBoxFromPolygon(
+  $: ReturnType<typeof load>,
+  element: Element,
+  parsedPoints = parsePoints($(element).attr("points"))
+): BoundingBox | undefined {
+  if (parsedPoints.length === 0) {
     return undefined;
   }
 
   const offset = getAbsoluteTranslate(element);
-  const xs = points.map((point) => point.x + offset.x);
-  const ys = points.map((point) => point.y + offset.y);
+  const xs = parsedPoints.map((point) => point.x + offset.x);
+  const ys = parsedPoints.map((point) => point.y + offset.y);
 
   return {
     x: Math.min(...xs),
     y: Math.min(...ys),
     width: Math.max(...xs) - Math.min(...xs),
     height: Math.max(...ys) - Math.min(...ys),
+  };
+}
+
+function getBoundingBoxFromPath($: ReturnType<typeof load>, element: Element): BoundingBox | undefined {
+  const geometry = parseSvgPathData($(element).attr("d"));
+  if (!geometry) {
+    return undefined;
+  }
+
+  const offset = getAbsoluteTranslate(element);
+  return {
+    x: geometry.bounds.x + offset.x,
+    y: geometry.bounds.y + offset.y,
+    width: geometry.bounds.width,
+    height: geometry.bounds.height,
+  };
+}
+
+function getAbsolutePathGeometry(
+  $: ReturnType<typeof load>,
+  element: Element
+): ParsedPathGeometry | undefined {
+  const geometry = parseSvgPathData($(element).attr("d"));
+  if (!geometry) {
+    return undefined;
+  }
+
+  const offset = getAbsoluteTranslate(element);
+  return {
+    ...geometry,
+    bounds: {
+      x: geometry.bounds.x + offset.x,
+      y: geometry.bounds.y + offset.y,
+      width: geometry.bounds.width,
+      height: geometry.bounds.height,
+    },
+    commands: geometry.commands.map((command) => {
+      switch (command.type) {
+        case "moveTo":
+        case "lineTo":
+          return {
+            ...command,
+            x: command.x + offset.x,
+            y: command.y + offset.y,
+          };
+        case "quadraticTo":
+          return {
+            ...command,
+            x1: command.x1 + offset.x,
+            y1: command.y1 + offset.y,
+            x: command.x + offset.x,
+            y: command.y + offset.y,
+          };
+        case "cubicTo":
+          return {
+            ...command,
+            x1: command.x1 + offset.x,
+            y1: command.y1 + offset.y,
+            x2: command.x2 + offset.x,
+            y2: command.y2 + offset.y,
+            x: command.x + offset.x,
+            y: command.y + offset.y,
+          };
+        case "close":
+          return command;
+      }
+    }),
   };
 }
 
@@ -398,11 +560,31 @@ function resolveShapeStyle(
   const style = resolveStyle($, cssRules, element);
 
   return {
-    fill: parseColor(style.fill),
+    fill: parseColor(style.fill ?? style.backgroundColor),
     stroke: parseColor(style.stroke),
     strokeWidthPx: parseNumber(style.strokeWidth),
     dashPattern: parseDashPattern(style.strokeDasharray),
   };
+}
+
+function resolveTextBoxStyle(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  element: Element
+): ShapeStyle | undefined {
+  const style = resolveStyle($, cssRules, element);
+  const resolved: ShapeStyle = {
+    fill: parseColor(style.backgroundColor ?? style.fill),
+    stroke: parseColor(style.stroke),
+    strokeWidthPx: parseNumber(style.strokeWidth),
+    dashPattern: parseDashPattern(style.strokeDasharray),
+  };
+
+  if (!resolved.fill && !resolved.stroke) {
+    return undefined;
+  }
+
+  return resolved;
 }
 
 function resolveTextStyle(style: ResolvedStyle): TextStyle {
@@ -461,7 +643,13 @@ function extractCssRules($: ReturnType<typeof load>): CssRule[] {
 
     while ((match = rulePattern.exec(stylesheet)) !== null) {
       const rawSelector = match[1].trim();
-      if (!rawSelector || rawSelector.startsWith("@") || rawSelector === "from" || rawSelector === "to" || rawSelector.endsWith("%")) {
+      if (
+        !rawSelector ||
+        rawSelector.startsWith("@") ||
+        rawSelector === "from" ||
+        rawSelector === "to" ||
+        rawSelector.endsWith("%")
+      ) {
         continue;
       }
 
@@ -498,8 +686,6 @@ function resolveStyle(
     }
   }
 
-  Object.assign(resolved, parseInlineStyle($(element).attr("style")));
-
   const attrMap: Array<[keyof ResolvedStyle, string | undefined]> = [
     ["backgroundColor", $(element).attr("background-color")],
     ["color", $(element).attr("color")],
@@ -515,9 +701,11 @@ function resolveStyle(
 
   for (const [key, value] of attrMap) {
     if (value) {
-      resolved[key] = value;
+      resolved[key] = stripCssPriority(value);
     }
   }
+
+  Object.assign(resolved, parseInlineStyle($(element).attr("style")));
 
   return resolved;
 }
@@ -532,7 +720,7 @@ function parseDeclarationBlock(raw: string): Record<string, string> {
     }
 
     const key = toCamelCase(entry.slice(0, separatorIndex).trim());
-    const value = entry.slice(separatorIndex + 1).trim();
+    const value = stripCssPriority(entry.slice(separatorIndex + 1));
     if (key && value) {
       declarations[key] = value;
     }
@@ -569,6 +757,15 @@ function getAbsoluteTranslate(element: AnyNode): { x: number; y: number } {
   }
 
   return { x, y };
+}
+
+function hasRenderableShapeStyle(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  element: Element
+): boolean {
+  const style = resolveShapeStyle($, cssRules, element);
+  return Boolean(style.fill || style.stroke);
 }
 
 function isElement(node: AnyNode): node is Element {

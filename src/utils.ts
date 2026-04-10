@@ -24,7 +24,7 @@ export function parseNumber(value: string | undefined): number | undefined {
     return undefined;
   }
 
-  const match = value.trim().match(/-?\d*\.?\d+/);
+  const match = stripCssPriority(value).match(/-?\d*\.?\d+/);
   if (!match) {
     return undefined;
   }
@@ -74,7 +74,7 @@ export function parseColor(raw: string | undefined): ColorValue | undefined {
     return undefined;
   }
 
-  const value = raw.trim().toLowerCase();
+  const value = stripCssPriority(raw).toLowerCase();
   if (!value || value === "none" || value === "transparent" || value === "currentcolor") {
     return undefined;
   }
@@ -122,6 +122,10 @@ export function parseColor(raw: string | undefined): ColorValue | undefined {
 
 export function normalizeWhitespace(raw: string): string {
   return raw.replace(/\s+/g, " ").trim();
+}
+
+export function stripCssPriority(value: string): string {
+  return value.replace(/\s*!important\s*/gi, "").trim();
 }
 
 export function clampTransparency(input: number | undefined): number {
@@ -172,4 +176,20 @@ export function parsePathEndpoints(d: string | undefined): PointPx[] {
 
 export function withFallback<T>(value: T | undefined, fallback: T): T {
   return value ?? fallback;
+}
+
+export function tintColor(color: ColorValue, amount: number): ColorValue {
+  const clamped = Math.max(0, Math.min(1, amount));
+  const channels = [0, 2, 4].map((offset) => Number.parseInt(color.hex.slice(offset, offset + 2), 16));
+  const tinted = channels.map((channel) =>
+    Math.round(channel + (255 - channel) * clamped)
+      .toString(16)
+      .padStart(2, "0")
+      .toUpperCase()
+  );
+
+  return {
+    hex: tinted.join(""),
+    transparency: color.transparency,
+  };
 }
