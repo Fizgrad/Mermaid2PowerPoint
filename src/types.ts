@@ -106,6 +106,28 @@ export interface ParsedNode {
   text?: ParsedText;
 }
 
+export interface ParsedCluster {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  style: ShapeStyle;
+  label?: ParsedText;
+}
+
+export interface ParsedImageNode {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  href: string;
+  preserveAspectRatio?: string;
+  frameStyle?: ShapeStyle;
+  label?: ParsedText;
+}
+
 export interface ParsedEdge {
   id: string;
   points: PointPx[];
@@ -119,7 +141,9 @@ export interface ParsedEdge {
 export interface ParsedDiagram {
   viewBox: ViewBox;
   background?: ColorValue;
+  clusters: ParsedCluster[];
   nodes: ParsedNode[];
+  imageNodes: ParsedImageNode[];
   edges: ParsedEdge[];
   floatingTexts: ParsedText[];
 }

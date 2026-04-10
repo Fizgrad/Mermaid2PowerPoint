@@ -13,6 +13,8 @@ const sampleMermaidPath = join(repoRoot, "examples", "simple-flow.mmd");
 const shapeRegressionPath = join(repoRoot, "examples", "shape-regression.mmd");
 const styledLinksPath = join(repoRoot, "examples", "styled-links.mmd");
 const curvedBasisPath = join(repoRoot, "examples", "curved-basis.mmd");
+const clusterRegressionPath = join(repoRoot, "examples", "cluster-regression.mmd");
+const imageNodePath = join(repoRoot, "examples", "image-node.mmd");
 
 const svgCache = new Map<string, Promise<string>>();
 
@@ -29,7 +31,7 @@ export function getSampleSvg(): Promise<string> {
 }
 
 export function getFixtureMermaidPath(
-  fixtureName: "simple-flow" | "shape-regression" | "styled-links" | "curved-basis"
+  fixtureName: "simple-flow" | "shape-regression" | "styled-links" | "curved-basis" | "cluster-regression" | "image-node"
 ): string {
   switch (fixtureName) {
     case "shape-regression":
@@ -38,6 +40,10 @@ export function getFixtureMermaidPath(
       return styledLinksPath;
     case "curved-basis":
       return curvedBasisPath;
+    case "cluster-regression":
+      return clusterRegressionPath;
+    case "image-node":
+      return imageNodePath;
     case "simple-flow":
     default:
       return sampleMermaidPath;
@@ -45,7 +51,7 @@ export function getFixtureMermaidPath(
 }
 
 export function getFixtureSvg(
-  fixtureName: "simple-flow" | "shape-regression" | "styled-links" | "curved-basis"
+  fixtureName: "simple-flow" | "shape-regression" | "styled-links" | "curved-basis" | "cluster-regression" | "image-node"
 ): Promise<string> {
   const mermaidPath = getFixtureMermaidPath(fixtureName);
   const cached = svgCache.get(mermaidPath);

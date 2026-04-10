@@ -1,0 +1,7 @@
+flowchart TD
+  C[Client] --> A
+  subgraph API[API Layer]
+    direction TB
+    A[Gateway] --> B[Auth]
+  end
+  B --> D[DB]

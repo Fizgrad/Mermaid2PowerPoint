@@ -68,3 +68,24 @@ test("parseMermaidFlowchartSvg preserves bezier edge geometry for curved Mermaid
     true
   );
 });
+
+test("parseMermaidFlowchartSvg extracts subgraph clusters and their labels", async () => {
+  const svg = await getFixtureSvg("cluster-regression");
+  const diagram = parseMermaidFlowchartSvg(svg);
+
+  assert.equal(diagram.clusters.length, 1);
+  assert.equal(diagram.clusters[0].label?.text, "API Layer");
+  assert.equal(diagram.clusters[0].style.fill?.hex, "FFFFDE");
+  assert.equal(diagram.clusters[0].style.stroke?.hex, "AAAA33");
+});
+
+test("parseMermaidFlowchartSvg extracts image nodes with labels and image sources", async () => {
+  const svg = await getFixtureSvg("image-node");
+  const diagram = parseMermaidFlowchartSvg(svg);
+
+  assert.equal(diagram.imageNodes.length, 1);
+  assert.match(diagram.imageNodes[0].href, /^data:image\/png;base64,/);
+  assert.equal(diagram.imageNodes[0].label?.text, "Brand");
+  assert.equal(diagram.imageNodes[0].frameStyle?.fill?.hex, "ECECFF");
+  assert.equal(diagram.imageNodes[0].frameStyle?.stroke?.hex, "9370DB");
+});

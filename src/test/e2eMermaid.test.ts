@@ -27,6 +27,8 @@ test("convertMermaidFileToPptx supports richer Mermaid fixtures end to end", asy
   await withTempDir(async (dir) => {
     const shapesOutput = join(dir, "shape-regression.pptx");
     const curvedOutput = join(dir, "curved-basis.pptx");
+    const clusterOutput = join(dir, "cluster-regression.pptx");
+    const imageOutput = join(dir, "image-node.pptx");
 
     await convertMermaidFileToPptx(getFixtureMermaidPath("shape-regression"), shapesOutput, {
       noSandbox: true,
@@ -34,12 +36,22 @@ test("convertMermaidFileToPptx supports richer Mermaid fixtures end to end", asy
     await convertMermaidFileToPptx(getFixtureMermaidPath("curved-basis"), curvedOutput, {
       noSandbox: true,
     });
+    await convertMermaidFileToPptx(getFixtureMermaidPath("cluster-regression"), clusterOutput, {
+      noSandbox: true,
+    });
+    await convertMermaidFileToPptx(getFixtureMermaidPath("image-node"), imageOutput, {
+      noSandbox: true,
+    });
 
     const shapesSlideXml = await readSlideXml(shapesOutput);
     const curvedSlideXml = await readSlideXml(curvedOutput);
+    const clusterSlideXml = await readSlideXml(clusterOutput);
+    const imageSlideXml = await readSlideXml(imageOutput);
 
     assert.match(shapesSlideXml, /<a:prstGeom prst="roundRect"/);
     assert.match(shapesSlideXml, /<a:prstGeom prst="ellipse"/);
     assert.match(curvedSlideXml, /<a:custGeom>/);
+    assert.match(clusterSlideXml, /<a:t>API Layer<\/a:t>/);
+    assert.match(imageSlideXml, /<p:pic>/);
   });
 });

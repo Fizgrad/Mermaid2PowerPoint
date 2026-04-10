@@ -4,8 +4,10 @@ import { parseMermaidFlowchartSvg } from "./parseSvg.js";
 import type {
   BoundingBox,
   ConvertSvgToPptxOptions,
+  ParsedCluster,
   ParsedDiagram,
   ParsedEdge,
+  ParsedImageNode,
   ParsedNode,
   ParsedPathGeometry,
   ParsedText,
@@ -78,11 +80,38 @@ function buildPresentation(
     slide.background = { color: diagram.background.hex };
   }
 
+  addClusters(slide, diagram, paddingPx);
   addEdges(slide, pptx, diagram, paddingPx);
   addNodes(slide, pptx, diagram, paddingPx);
+  addImageNodes(slide, pptx, diagram, paddingPx);
   addFloatingTexts(slide, diagram, paddingPx);
 
   return { diagram, paddingPx, pptx };
+}
+
+function addClusters(slide: any, diagram: ParsedDiagram, paddingPx: number): void {
+  for (const cluster of diagram.clusters) {
+    slide.addShape("rect", {
+      x: mapX(diagram, paddingPx, cluster.x),
+      y: mapY(diagram, paddingPx, cluster.y),
+      w: pxToIn(cluster.width),
+      h: pxToIn(cluster.height),
+      fill: {
+        color: cluster.style.fill?.hex ?? "FFFFDE",
+        transparency: cluster.style.fill?.transparency ?? 0,
+      },
+      line: {
+        color: cluster.style.stroke?.hex ?? "AAAA33",
+        transparency: cluster.style.stroke?.transparency ?? 0,
+        width: pxToPt(cluster.style.strokeWidthPx ?? 1),
+        dashType: dashTypeFromPattern(cluster.style.dashPattern),
+      },
+    });
+
+    if (cluster.label) {
+      addText(slide, diagram, paddingPx, cluster.label);
+    }
+  }
 }
 
 function addEdges(slide: any, pptx: any, diagram: ParsedDiagram, paddingPx: number): void {
@@ -129,6 +158,12 @@ function addNodes(slide: any, pptx: any, diagram: ParsedDiagram, paddingPx: numb
 function addFloatingTexts(slide: any, diagram: ParsedDiagram, paddingPx: number): void {
   for (const text of diagram.floatingTexts) {
     addText(slide, diagram, paddingPx, text);
+  }
+}
+
+function addImageNodes(slide: any, pptx: any, diagram: ParsedDiagram, paddingPx: number): void {
+  for (const imageNode of diagram.imageNodes) {
+    addImageNode(slide, pptx, diagram, paddingPx, imageNode);
   }
 }
 
@@ -239,6 +274,52 @@ function addCustomGeometryEdge(
       endArrowType: edge.endArrow ? "triangle" : undefined,
     },
   });
+}
+
+function addImageNode(
+  slide: any,
+  _pptx: any,
+  diagram: ParsedDiagram,
+  paddingPx: number,
+  imageNode: ParsedImageNode
+): void {
+  if (imageNode.frameStyle?.fill || imageNode.frameStyle?.stroke) {
+    slide.addShape("rect", {
+      x: mapX(diagram, paddingPx, imageNode.x),
+      y: mapY(diagram, paddingPx, imageNode.y),
+      w: pxToIn(imageNode.width),
+      h: pxToIn(imageNode.height),
+      fill: imageNode.frameStyle.fill
+        ? {
+            color: imageNode.frameStyle.fill.hex,
+            transparency: imageNode.frameStyle.fill.transparency,
+          }
+        : {
+            color: "FFFFFF",
+            transparency: 100,
+          },
+      line: imageNode.frameStyle.stroke
+        ? {
+            color: imageNode.frameStyle.stroke.hex,
+            transparency: imageNode.frameStyle.stroke.transparency,
+            width: pxToPt(imageNode.frameStyle.strokeWidthPx ?? 1),
+            dashType: dashTypeFromPattern(imageNode.frameStyle.dashPattern),
+          }
+        : undefined,
+    });
+  }
+
+  slide.addImage({
+    data: normalizeImageData(imageNode.href),
+    x: mapX(diagram, paddingPx, imageNode.x),
+    y: mapY(diagram, paddingPx, imageNode.y),
+    w: pxToIn(imageNode.width),
+    h: pxToIn(imageNode.height),
+  });
+
+  if (imageNode.label) {
+    addText(slide, diagram, paddingPx, imageNode.label);
+  }
 }
 
 function buildLineSegment(
@@ -435,4 +516,12 @@ function mapX(diagram: ParsedDiagram, paddingPx: number, x: number): number {
 
 function mapY(diagram: ParsedDiagram, paddingPx: number, y: number): number {
   return pxToIn(y - diagram.viewBox.minY + paddingPx);
+}
+
+function normalizeImageData(href: string): string {
+  if (href.startsWith("data:")) {
+    return href;
+  }
+
+  return href;
 }

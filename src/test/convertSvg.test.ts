@@ -51,3 +51,23 @@ test("convertSvgToPptx keeps curved edges as custom geometry and themed edge lab
     assert.match(curvedSlideXml, /<a:custGeom>/);
   });
 });
+
+test("convertSvgToPptx exports subgraph clusters and image nodes", async () => {
+  const clusterSvg = await getFixtureSvg("cluster-regression");
+  const imageSvg = await getFixtureSvg("image-node");
+
+  await withTempDir(async (dir) => {
+    const clusterOutput = join(dir, "cluster-regression.pptx");
+    const imageOutput = join(dir, "image-node.pptx");
+    await convertSvgToPptx(clusterSvg, clusterOutput);
+    await convertSvgToPptx(imageSvg, imageOutput);
+
+    const clusterSlideXml = await readSlideXml(clusterOutput);
+    const imageSlideXml = await readSlideXml(imageOutput);
+
+    assert.match(clusterSlideXml, /<a:t>API Layer<\/a:t>/);
+    assert.match(clusterSlideXml, /<a:srgbClr val="FFFFDE"/);
+    assert.match(imageSlideXml, /<p:pic>/);
+    assert.match(imageSlideXml, /<a:t>Brand<\/a:t>/);
+  });
+});

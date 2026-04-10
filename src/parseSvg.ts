@@ -5,8 +5,10 @@ import { geometryToPoints, parseSvgPathData, unionBoundingBoxes } from "./svgPat
 import type {
   BoundingBox,
   ColorValue,
+  ParsedCluster,
   ParsedDiagram,
   ParsedEdge,
+  ParsedImageNode,
   ParsedNode,
   ParsedPathGeometry,
   ParsedText,
@@ -56,8 +58,10 @@ export function parseRect(svgString: string): ParsedNode[] {
 export function parseText(svgString: string): ParsedText[] {
   const diagram = parseMermaidFlowchartSvg(svgString);
   const nodeTexts = diagram.nodes.flatMap((node) => (node.text ? [node.text] : []));
+  const clusterTexts = diagram.clusters.flatMap((cluster) => (cluster.label ? [cluster.label] : []));
+  const imageTexts = diagram.imageNodes.flatMap((imageNode) => (imageNode.label ? [imageNode.label] : []));
   const edgeTexts = diagram.edges.flatMap((edge) => (edge.label ? [edge.label] : []));
-  return [...nodeTexts, ...edgeTexts, ...diagram.floatingTexts];
+  return [...clusterTexts, ...nodeTexts, ...imageTexts, ...edgeTexts, ...diagram.floatingTexts];
 }
 
 export function parsePath(svgString: string): ParsedEdge[] {
@@ -81,17 +85,54 @@ export function parseMermaidFlowchartSvg(svgString: string): ParsedDiagram {
   const viewBox = parseViewBox(svgRoot.attr("viewBox"), svgRoot.attr("width"), svgRoot.attr("height"));
   const background = parseSvgBackground(svgRoot.attr("style"));
   const edgeLabelMap = buildEdgeLabelMap($, cssRules);
+  const clusters = parseClusters($, cssRules);
   const nodes = parseNodes($, cssRules);
+  const imageNodes = parseImageNodes($, cssRules);
   const edges = parseEdges($, cssRules, edgeLabelMap);
   const floatingTexts = parseFloatingTexts($, cssRules);
 
   return {
     viewBox,
     background,
+    clusters,
     nodes,
+    imageNodes,
     edges,
     floatingTexts,
   };
+}
+
+function parseClusters($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedCluster[] {
+  const clusters: ParsedCluster[] = [];
+
+  $(".clusters .cluster").each((_, element) => {
+    const rect = $(element).children("rect").first()[0];
+    if (!rect || !isElement(rect)) {
+      return;
+    }
+
+    const bounds = getBoundingBoxFromRect($, rect);
+    if (!bounds) {
+      return;
+    }
+
+    const labelElement = $(element).children(".cluster-label").first()[0];
+    const label = labelElement && isElement(labelElement)
+      ? parseLabelText($, cssRules, labelElement, "free")
+      : undefined;
+
+    clusters.push({
+      id: $(element).attr("id") ?? `cluster-${clusters.length + 1}`,
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      style: resolveShapeStyle($, cssRules, rect),
+      label,
+    });
+  });
+
+  return clusters;
 }
 
 function parseNodes($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedNode[] {
@@ -119,6 +160,45 @@ function parseNodes($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedNode
   });
 
   return nodes;
+}
+
+function parseImageNodes($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedImageNode[] {
+  const imageNodes: ParsedImageNode[] = [];
+
+  $(".image-shape").each((_, element) => {
+    const imageElement = $(element).find("image").first()[0];
+    if (!imageElement || !isElement(imageElement)) {
+      return;
+    }
+
+    const bounds = getBoundingBoxFromImage($, imageElement);
+    if (!bounds) {
+      return;
+    }
+
+    const href = $(imageElement).attr("href") ?? $(imageElement).attr("xlink:href");
+    if (!href) {
+      return;
+    }
+
+    const labelElement = $(element).children(".label").first()[0];
+    const label = labelElement && isElement(labelElement)
+      ? parseLabelText($, cssRules, labelElement, "node")
+      : undefined;
+    imageNodes.push({
+      id: $(element).attr("id") ?? `image-node-${imageNodes.length + 1}`,
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      href,
+      preserveAspectRatio: $(imageElement).attr("preserveAspectRatio") ?? undefined,
+      frameStyle: resolveImageFrameStyle($, cssRules, element),
+      label,
+    });
+  });
+
+  return imageNodes;
 }
 
 function parseNodeShape(
@@ -455,6 +535,51 @@ function getBoundingBoxFromPath($: ReturnType<typeof load>, element: Element): B
     width: geometry.bounds.width,
     height: geometry.bounds.height,
   };
+}
+
+function getBoundingBoxFromImage($: ReturnType<typeof load>, element: Element): BoundingBox | undefined {
+  const width = parseNumber($(element).attr("width"));
+  const height = parseNumber($(element).attr("height"));
+  if (width === undefined || height === undefined) {
+    return undefined;
+  }
+
+  const x = parseNumber($(element).attr("x")) ?? 0;
+  const y = parseNumber($(element).attr("y")) ?? 0;
+  const offset = getAbsoluteTranslate(element);
+
+  return {
+    x: offset.x + x,
+    y: offset.y + y,
+    width,
+    height,
+  };
+}
+
+function resolveImageFrameStyle(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  container: Element
+): ShapeStyle | undefined {
+  const candidateStyles = $(container)
+    .find("path")
+    .toArray()
+    .filter(isElement)
+    .filter((pathElement) => !$(pathElement).closest(".label").length);
+  const styles = candidateStyles
+    .map((pathElement) => resolveShapeStyle($, cssRules, pathElement))
+    .filter((style) => Boolean(style.fill || style.stroke));
+
+  if (styles.length === 0) {
+    return undefined;
+  }
+
+  return styles.reduce<ShapeStyle>((merged, current) => ({
+    fill: merged.fill ?? current.fill,
+    stroke: merged.stroke ?? current.stroke,
+    strokeWidthPx: merged.strokeWidthPx ?? current.strokeWidthPx,
+    dashPattern: merged.dashPattern ?? current.dashPattern,
+  }), {});
 }
 
 function getAbsolutePathGeometry(
