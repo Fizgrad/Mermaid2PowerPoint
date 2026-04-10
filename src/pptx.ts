@@ -84,6 +84,7 @@ function buildPresentation(
   addGenericShapes(slide, pptx, diagram, paddingPx);
   addClusters(slide, diagram, paddingPx);
   addEdges(slide, pptx, diagram, paddingPx);
+  addMarkerDecorations(slide, pptx, diagram, paddingPx);
   addNodes(slide, pptx, diagram, paddingPx);
   addImageNodes(slide, pptx, diagram, paddingPx);
   addFloatingTexts(slide, diagram, paddingPx);
@@ -93,6 +94,12 @@ function buildPresentation(
 
 function addGenericShapes(slide: any, pptx: any, diagram: ParsedDiagram, paddingPx: number): void {
   for (const shape of diagram.genericShapes) {
+    addGenericShape(slide, pptx, diagram, paddingPx, shape);
+  }
+}
+
+function addMarkerDecorations(slide: any, pptx: any, diagram: ParsedDiagram, paddingPx: number): void {
+  for (const shape of diagram.markerDecorations) {
     addGenericShape(slide, pptx, diagram, paddingPx, shape);
   }
 }
@@ -278,8 +285,8 @@ function addCustomGeometryEdge(
       transparency: edge.style.stroke?.transparency ?? 0,
       width: pxToPt(edge.style.strokeWidthPx ?? 2),
       dashType: dashTypeFromPattern(edge.style.dashPattern),
-      beginArrowType: edge.startArrow ? "triangle" : undefined,
-      endArrowType: edge.endArrow ? "triangle" : undefined,
+      beginArrowType: edge.startArrow,
+      endArrowType: edge.endArrow,
     },
   });
 }
@@ -455,8 +462,8 @@ function addGenericCustomGeometryShape(
           transparency: shape.style.stroke.transparency,
           width: pxToPt(shape.style.strokeWidthPx ?? 1),
           dashType: dashTypeFromPattern(shape.style.dashPattern),
-          beginArrowType: shape.startArrow ? "triangle" : undefined,
-          endArrowType: shape.endArrow ? "triangle" : undefined,
+          beginArrowType: shape.startArrow,
+          endArrowType: shape.endArrow,
         }
       : undefined,
   });
@@ -514,12 +521,12 @@ function buildLineSegment(
     beginArrowType:
       (isFirstSegment && edge.startArrow && !actualStartsAtBaseStart) ||
       (isLastSegment && edge.endArrow && actualStartsAtBaseStart)
-        ? "triangle"
+        ? (isFirstSegment && !actualStartsAtBaseStart ? edge.startArrow : edge.endArrow)
         : undefined,
     endArrowType:
       (isFirstSegment && edge.startArrow && actualStartsAtBaseStart) ||
       (isLastSegment && edge.endArrow && !actualStartsAtBaseStart)
-        ? "triangle"
+        ? (isFirstSegment && actualStartsAtBaseStart ? edge.startArrow : edge.endArrow)
         : undefined,
   };
 }

@@ -128,6 +128,8 @@ export interface ParsedImageNode {
   label?: ParsedText;
 }
 
+export type LineArrowType = "arrow" | "diamond" | "oval" | "stealth" | "triangle";
+
 export interface ParsedGenericShape {
   id: string;
   kind: "rect" | "roundRect" | "ellipse" | "diamond" | "hexagon" | "line" | "customGeometry";
@@ -138,8 +140,8 @@ export interface ParsedGenericShape {
   style: ShapeStyle;
   geometry?: ParsedPathGeometry;
   points?: PointPx[];
-  startArrow?: "triangle";
-  endArrow?: "triangle";
+  startArrow?: LineArrowType;
+  endArrow?: LineArrowType;
   closed?: boolean;
 }
 
@@ -148,8 +150,10 @@ export interface ParsedEdge {
   points: PointPx[];
   geometry?: ParsedPathGeometry;
   style: ShapeStyle;
-  startArrow?: "triangle";
-  endArrow?: "triangle";
+  startArrow?: LineArrowType;
+  endArrow?: LineArrowType;
+  startMarkerId?: string;
+  endMarkerId?: string;
   label?: ParsedText;
 }
 
@@ -160,6 +164,7 @@ export interface ParsedDiagram {
   nodes: ParsedNode[];
   imageNodes: ParsedImageNode[];
   genericShapes: ParsedGenericShape[];
+  markerDecorations: ParsedGenericShape[];
   edges: ParsedEdge[];
   floatingTexts: ParsedText[];
 }

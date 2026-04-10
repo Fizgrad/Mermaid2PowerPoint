@@ -109,6 +109,31 @@ test("parseMermaidFlowchartSvg preserves Mermaid sequence diagrams as editable s
   );
 });
 
+test("parseMermaidFlowchartSvg merges multi-line sequence notes into one floating text box", async () => {
+  const svg = await getFixtureSvg("sequence-note-breaks");
+  const diagram = parseMermaidFlowchartSvg(svg);
+
+  const mergedNote = diagram.floatingTexts.find((text) => text.text.includes("如果有Profile"));
+  assert.ok(mergedNote);
+  assert.match(mergedNote.text, /加载镜像类描述\n如果有Profile\n则只加载DexFile和\nProfileCompilationInfo的交集/);
+  assert.equal(diagram.floatingTexts.some((text) => text.text === "如果有Profile"), false);
+});
+
+test("parseMermaidFlowchartSvg keeps state diagrams editable with composite states, pseudo states, and note line breaks", async () => {
+  const svg = await getFixtureSvg("state-basic");
+  const diagram = parseMermaidFlowchartSvg(svg);
+
+  assert.equal(diagram.clusters.some((cluster) => cluster.label?.text === "Running"), true);
+  assert.equal(diagram.nodes.some((node) => node.kind === "roundRect" && node.text?.text === "Idle"), true);
+  assert.equal(diagram.nodes.some((node) => node.kind === "ellipse"), true);
+  assert.equal(diagram.markerDecorations.length > 0, false);
+  assert.equal(
+    diagram.nodes.some((node) => node.text?.text === "Worker\nloop"),
+    true
+  );
+  assert.equal(diagram.edges.some((edge) => edge.label?.text === "finish"), true);
+});
+
 test("parseMermaidFlowchartSvg parses Mermaid mindmap nodes and themed branch colors", async () => {
   const svg = await getFixtureSvg("mindmap-basic");
   const diagram = parseMermaidFlowchartSvg(svg);
@@ -139,6 +164,33 @@ test("parseMermaidFlowchartSvg parses Mermaid ER diagrams into entity nodes, lab
     diagram.floatingTexts.some((text) => text.text === "created_at"),
     true
   );
+});
+
+test("parseMermaidFlowchartSvg expands ER cardinality markers into editable decorations", async () => {
+  const svg = await getFixtureSvg("er-cardinality");
+  const diagram = parseMermaidFlowchartSvg(svg);
+
+  assert.equal(diagram.edges.length, 4);
+  assert.equal(diagram.markerDecorations.length >= 8, true);
+  assert.equal(diagram.markerDecorations.some((shape) => shape.kind === "ellipse"), true);
+  assert.equal(diagram.markerDecorations.some((shape) => shape.kind === "customGeometry"), true);
+  assert.equal(
+    diagram.edges.every((edge) => edge.startArrow === undefined && edge.endArrow === undefined),
+    true
+  );
+});
+
+test("parseMermaidFlowchartSvg maps class/object-style relationship markers to editable arrow types", async () => {
+  const svg = await getFixtureSvg("class-relations");
+  const diagram = parseMermaidFlowchartSvg(svg);
+  const byLabel = new Map(diagram.edges.map((edge) => [edge.label?.text, edge]));
+
+  assert.equal(byLabel.get("extends")?.startArrow, "triangle");
+  assert.equal(byLabel.get("composition")?.startArrow, "diamond");
+  assert.equal(byLabel.get("aggregation")?.startArrow, "diamond");
+  assert.equal(byLabel.get("association")?.endArrow, "stealth");
+  assert.equal(byLabel.get("dependency")?.endArrow, "stealth");
+  assert.equal(byLabel.get("lollipop")?.endArrow, "oval");
 });
 
 test("parseMermaidFlowchartSvg parses Mermaid gantt charts into timeline bars and labels", async () => {

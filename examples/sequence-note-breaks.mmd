@@ -1,0 +1,10 @@
+sequenceDiagram
+    participant Caller as Dex2oat函数
+    participant Dex2Oat as Dex2Oat 对象
+    participant Runtime
+
+    Caller->>Dex2Oat: DoCompilation
+    Note right of Dex2Oat: 加载镜像类描述<br/>如果有Profile<br/>则只加载DexFile和<br/>ProfileCompilationInfo的交集
+    Dex2Oat->>Runtime: Runtime::Current()->GetClassLinker()
+    Note right of Dex2Oat: HandleImage()<br/>创建 boot.art 并 patch oat
+

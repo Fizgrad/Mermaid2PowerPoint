@@ -5,6 +5,7 @@ import { geometryToPoints, parseSvgPathData, unionBoundingBoxes } from "./svgPat
 import type {
   BoundingBox,
   ColorValue,
+  LineArrowType,
   ParsedCluster,
   ParsedDiagram,
   ParsedEdge,
@@ -94,6 +95,7 @@ export function parseMermaidFlowchartSvg(svgString: string): ParsedDiagram {
   const nodes = parseNodes($, cssRules, consumed);
   const imageNodes = parseImageNodes($, cssRules, consumed);
   const edges = parseEdges($, cssRules, edgeLabelMap, consumed);
+  const markerDecorations = parseEdgeMarkerDecorations($, cssRules, edges);
   const genericShapes = parseGenericShapes($, cssRules, consumed);
   const floatingTexts = parseFloatingTexts($, cssRules, consumed);
 
@@ -104,6 +106,7 @@ export function parseMermaidFlowchartSvg(svgString: string): ParsedDiagram {
     nodes,
     imageNodes,
     genericShapes,
+    markerDecorations,
     edges,
     floatingTexts,
   };
@@ -112,8 +115,8 @@ export function parseMermaidFlowchartSvg(svgString: string): ParsedDiagram {
 function parseClusters($: ReturnType<typeof load>, cssRules: CssRule[], consumed: Set<Element>): ParsedCluster[] {
   const clusters: ParsedCluster[] = [];
 
-  $(".clusters .cluster").each((_, element) => {
-    const rect = $(element).children("rect").first()[0];
+  $(".clusters .cluster, .clusters .statediagram-cluster").each((_, element) => {
+    const rect = findPrimaryClusterRect($, element);
     if (!rect || !isElement(rect)) {
       return;
     }
@@ -127,7 +130,11 @@ function parseClusters($: ReturnType<typeof load>, cssRules: CssRule[], consumed
     const label = labelElement && isElement(labelElement)
       ? parseLabelText($, cssRules, labelElement, "free", consumed)
       : undefined;
-    consumed.add(rect);
+    $(element)
+      .find("rect")
+      .toArray()
+      .filter(isElement)
+      .forEach((clusterRect) => consumed.add(clusterRect));
 
     clusters.push({
       id: $(element).attr("id") ?? `cluster-${clusters.length + 1}`,
@@ -141,6 +148,21 @@ function parseClusters($: ReturnType<typeof load>, cssRules: CssRule[], consumed
   });
 
   return clusters;
+}
+
+function findPrimaryClusterRect($: ReturnType<typeof load>, element: Element): Element | undefined {
+  const directRect = $(element).children("rect").filter(".outer").first()[0] ?? $(element).children("rect").first()[0];
+  if (directRect && isElement(directRect)) {
+    return directRect;
+  }
+
+  const nestedOuterRect = $(element).find("rect.outer").first()[0];
+  if (nestedOuterRect && isElement(nestedOuterRect)) {
+    return nestedOuterRect;
+  }
+
+  const nestedRect = $(element).find("rect").first()[0];
+  return nestedRect && isElement(nestedRect) ? nestedRect : undefined;
 }
 
 function parseNodes($: ReturnType<typeof load>, cssRules: CssRule[], consumed: Set<Element>): ParsedNode[] {
@@ -246,8 +268,10 @@ function parseNodeShape(
     if (child.tagName === "rect") {
       const bounds = getBoundingBoxFromRect($, child);
       if (bounds) {
+        const rx = parseNumber($(child).attr("rx")) ?? 0;
+        const ry = parseNumber($(child).attr("ry")) ?? 0;
         return {
-          kind: "rect",
+          kind: rx > 0 || ry > 0 ? "roundRect" : "rect",
           bounds,
           styleElement: child,
           consumedElements: [child],
@@ -332,6 +356,8 @@ function parseEdges(
     const style = resolveShapeStyle($, cssRules, element);
     const geometry = getAbsolutePathGeometry($, element);
     const points = decodePathPoints($(element).attr("data-points")) ?? geometryToPoints(geometry);
+    const startMarkerId = extractMarkerId($(element).attr("marker-start"));
+    const endMarkerId = extractMarkerId($(element).attr("marker-end"));
 
     if (points.length < 2) {
       return;
@@ -346,8 +372,10 @@ function parseEdges(
         ...style,
         fill: undefined,
       },
-      startArrow: $(element).attr("marker-start") ? "triangle" : undefined,
-      endArrow: $(element).attr("marker-end") ? "triangle" : undefined,
+      startArrow: parseMarkerArrowType($(element).attr("marker-start")),
+      endArrow: parseMarkerArrowType($(element).attr("marker-end")),
+      startMarkerId,
+      endMarkerId,
       label: edgeLabelMap.get(id),
     });
   });
@@ -355,9 +383,228 @@ function parseEdges(
   return edges;
 }
 
+function parseEdgeMarkerDecorations(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  edges: ParsedEdge[]
+): ParsedGenericShape[] {
+  const shapes: ParsedGenericShape[] = [];
+
+  for (const edge of edges) {
+    if (edge.startMarkerId && isDecoratedMarker(edge.startMarkerId) && edge.points.length >= 2) {
+      shapes.push(...buildMarkerDecorationShapes($, cssRules, edge, edge.startMarkerId, "start"));
+    }
+
+    if (edge.endMarkerId && isDecoratedMarker(edge.endMarkerId) && edge.points.length >= 2) {
+      shapes.push(...buildMarkerDecorationShapes($, cssRules, edge, edge.endMarkerId, "end"));
+    }
+  }
+
+  return shapes;
+}
+
+function buildMarkerDecorationShapes(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  edge: ParsedEdge,
+  markerId: string,
+  side: "start" | "end"
+): ParsedGenericShape[] {
+  const marker = $(`marker[id="${markerId}"]`).first()[0];
+  if (!marker || !isElement(marker)) {
+    return [];
+  }
+
+  const refX = parseNumber($(marker).attr("refX")) ?? 0;
+  const refY = parseNumber($(marker).attr("refY")) ?? 0;
+  const anchor = side === "start" ? edge.points[0] : edge.points[edge.points.length - 1];
+  const vectorStart = side === "start" ? edge.points[0] : edge.points[edge.points.length - 2];
+  const vectorEnd = side === "start" ? edge.points[1] : edge.points[edge.points.length - 1];
+  const angle = Math.atan2(vectorEnd.y - vectorStart.y, vectorEnd.x - vectorStart.x);
+
+  return $(marker)
+    .children()
+    .toArray()
+    .filter(isElement)
+    .flatMap((child, index) => buildMarkerChildShape($, cssRules, child, edge, markerId, side, index, anchor, refX, refY, angle));
+}
+
+function buildMarkerChildShape(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  child: Element,
+  edge: ParsedEdge,
+  markerId: string,
+  side: "start" | "end",
+  index: number,
+  anchor: PointPx,
+  refX: number,
+  refY: number,
+  angle: number
+): ParsedGenericShape[] {
+  const fallbackStyle = {
+    fill: undefined,
+    stroke: edge.style.stroke,
+    strokeWidthPx: edge.style.strokeWidthPx,
+    dashPattern: edge.style.dashPattern,
+  } satisfies ShapeStyle;
+  const resolvedStyle = mergeShapeStyles([resolveShapeStyle($, cssRules, child), fallbackStyle]) ?? fallbackStyle;
+  const baseId = `${edge.id}-${side}-${markerId}-${index + 1}`;
+
+  if (child.tagName === "circle" || child.tagName === "ellipse") {
+    const cx = parseNumber($(child).attr("cx")) ?? 0;
+    const cy = parseNumber($(child).attr("cy")) ?? 0;
+    const rx = child.tagName === "circle"
+      ? parseNumber($(child).attr("r")) ?? 0
+      : parseNumber($(child).attr("rx")) ?? 0;
+    const ry = child.tagName === "circle"
+      ? parseNumber($(child).attr("r")) ?? 0
+      : parseNumber($(child).attr("ry")) ?? 0;
+    const center = rotateRelativePoint({ x: cx, y: cy }, refX, refY, anchor, angle);
+
+    return [{
+      id: baseId,
+      kind: "ellipse",
+      x: center.x - rx,
+      y: center.y - ry,
+      width: rx * 2,
+      height: ry * 2,
+      style: resolvedStyle,
+      closed: true,
+    }];
+  }
+
+  if (child.tagName === "path") {
+    const geometry = parseSvgPathData($(child).attr("d"));
+    if (!geometry) {
+      return [];
+    }
+
+    const transformed = transformPathGeometry(geometry, refX, refY, anchor, angle);
+    const closed = transformed.commands.some((command) => command.type === "close") || Boolean(resolvedStyle.fill);
+    return [{
+      id: baseId,
+      kind: "customGeometry",
+      x: transformed.bounds.x,
+      y: transformed.bounds.y,
+      width: transformed.bounds.width,
+      height: transformed.bounds.height,
+      geometry: transformed,
+      style: closed ? resolvedStyle : {
+        ...resolvedStyle,
+        fill: undefined,
+      },
+      closed,
+    }];
+  }
+
+  return [];
+}
+
+function transformPathGeometry(
+  geometry: ParsedPathGeometry,
+  refX: number,
+  refY: number,
+  anchor: PointPx,
+  angle: number
+): ParsedPathGeometry {
+  const commands = geometry.commands.map((command) => {
+    switch (command.type) {
+      case "moveTo":
+      case "lineTo": {
+        const point = rotateRelativePoint({ x: command.x, y: command.y }, refX, refY, anchor, angle);
+        return { ...command, x: point.x, y: point.y };
+      }
+      case "quadraticTo": {
+        const control = rotateRelativePoint({ x: command.x1, y: command.y1 }, refX, refY, anchor, angle);
+        const point = rotateRelativePoint({ x: command.x, y: command.y }, refX, refY, anchor, angle);
+        return { ...command, x1: control.x, y1: control.y, x: point.x, y: point.y };
+      }
+      case "cubicTo": {
+        const control1 = rotateRelativePoint({ x: command.x1, y: command.y1 }, refX, refY, anchor, angle);
+        const control2 = rotateRelativePoint({ x: command.x2, y: command.y2 }, refX, refY, anchor, angle);
+        const point = rotateRelativePoint({ x: command.x, y: command.y }, refX, refY, anchor, angle);
+        return {
+          ...command,
+          x1: control1.x,
+          y1: control1.y,
+          x2: control2.x,
+          y2: control2.y,
+          x: point.x,
+          y: point.y,
+        };
+      }
+      case "close":
+        return command;
+    }
+  });
+  const bounds = getCommandBounds(commands);
+
+  return {
+    bounds,
+    commands,
+    hasCurves: geometry.hasCurves,
+  };
+}
+
+function rotateRelativePoint(point: PointPx, refX: number, refY: number, anchor: PointPx, angle: number): PointPx {
+  const dx = point.x - refX;
+  const dy = point.y - refY;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+
+  return {
+    x: anchor.x + dx * cos - dy * sin,
+    y: anchor.y + dx * sin + dy * cos,
+  };
+}
+
+function getCommandBounds(commands: ParsedPathGeometry["commands"]): BoundingBox {
+  const sampledPoints: PointPx[] = [];
+
+  for (const command of commands) {
+    switch (command.type) {
+      case "moveTo":
+      case "lineTo":
+        sampledPoints.push({ x: command.x, y: command.y });
+        break;
+      case "quadraticTo":
+        sampledPoints.push({ x: command.x1, y: command.y1 }, { x: command.x, y: command.y });
+        break;
+      case "cubicTo":
+        sampledPoints.push(
+          { x: command.x1, y: command.y1 },
+          { x: command.x2, y: command.y2 },
+          { x: command.x, y: command.y }
+        );
+        break;
+      case "close":
+        break;
+    }
+  }
+
+  return unionBoundingBoxes(
+    sampledPoints.map((point) => ({
+      x: point.x,
+      y: point.y,
+      width: 0,
+      height: 0,
+    }))
+  ) ?? {
+    x: 0,
+    y: 0,
+    width: 0.5,
+    height: 0.5,
+  };
+}
+
 function parseFloatingTexts($: ReturnType<typeof load>, cssRules: CssRule[], consumed: Set<Element>): ParsedText[] {
   const floatingTexts: ParsedText[] = [];
   const seen = new Set<string>();
+
+  for (const groupedText of parseGroupedFloatingTexts($, cssRules, consumed)) {
+    pushUniqueText(floatingTexts, seen, groupedText);
+  }
 
   $("svg > text, .cluster-label text, .flowchartTitleText").each((_, element) => {
     const text = parseTextElement($, cssRules, element, "free", consumed);
@@ -388,6 +635,80 @@ function parseFloatingTexts($: ReturnType<typeof load>, cssRules: CssRule[], con
   });
 
   return floatingTexts;
+}
+
+function parseGroupedFloatingTexts(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  consumed: Set<Element>
+): ParsedText[] {
+  const groupedTexts: ParsedText[] = [];
+
+  $("g[data-et='note']").each((_, element) => {
+    if (!isElement(element)) {
+      return;
+    }
+
+    const parsed = parseGroupedNoteText($, cssRules, element, consumed);
+    if (parsed) {
+      groupedTexts.push(parsed);
+    }
+  });
+
+  return groupedTexts;
+}
+
+function parseGroupedNoteText(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  noteElement: Element,
+  consumed: Set<Element>
+): ParsedText | undefined {
+  const lineEntries = $(noteElement)
+    .children("text")
+    .toArray()
+    .filter(isElement)
+    .filter((element) => !consumed.has(element))
+    .map((element) => ({
+      element,
+      parsed: parseTextElement($, cssRules, element, "free", new Set<Element>()),
+    }))
+    .filter((entry): entry is { element: Element; parsed: ParsedText } => Boolean(entry.parsed))
+    .sort((left, right) => left.parsed.y - right.parsed.y);
+
+  if (lineEntries.length === 0) {
+    return undefined;
+  }
+
+  for (const entry of lineEntries) {
+    consumed.add(entry.element);
+  }
+
+  const noteRect = $(noteElement).children("rect").first()[0];
+  const noteBounds = noteRect && isElement(noteRect) ? getBoundingBoxFromRect($, noteRect) : undefined;
+  const mergedText = lineEntries.map((entry) => entry.parsed.text).join("\n");
+  const mergedBounds = unionBoundingBoxes(
+    lineEntries.map((entry) => ({
+      x: entry.parsed.x,
+      y: entry.parsed.y,
+      width: entry.parsed.width,
+      height: entry.parsed.height,
+    }))
+  );
+  const bounds = noteBounds ?? mergedBounds;
+  if (!bounds) {
+    return undefined;
+  }
+
+  return {
+    role: "free",
+    text: mergedText,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    style: lineEntries[0].parsed.style,
+  };
 }
 
 function buildEdgeLabelMap(
@@ -439,7 +760,7 @@ function parseForeignObjectText(
   role: ParsedText["role"],
   consumed: Set<Element>
 ): ParsedText | undefined {
-  const text = normalizeWhitespace($(element).text());
+  const text = extractForeignObjectText($, element);
   if (!text) {
     return undefined;
   }
@@ -467,6 +788,53 @@ function parseForeignObjectText(
   };
 }
 
+function extractForeignObjectText($: ReturnType<typeof load>, element: Element): string {
+  const buffer: string[] = [];
+
+  for (const child of element.children) {
+    appendHtmlText($, child, buffer);
+  }
+
+  return normalizeMultilineText(buffer.join(""));
+}
+
+function appendHtmlText($: ReturnType<typeof load>, node: AnyNode, buffer: string[]): void {
+  if (node.type === "text") {
+    buffer.push(node.data);
+    return;
+  }
+
+  if (!isElement(node)) {
+    return;
+  }
+
+  if (node.tagName === "br") {
+    buffer.push("\n");
+    return;
+  }
+
+  for (const child of node.children) {
+    appendHtmlText($, child, buffer);
+  }
+
+  if (isBlockTextElement(node.tagName)) {
+    buffer.push("\n");
+  }
+}
+
+function normalizeMultilineText(raw: string): string {
+  return raw
+    .split(/\r?\n/)
+    .map((line) => normalizeWhitespace(line))
+    .filter((line, index, lines) => line.length > 0 || (index > 0 && index < lines.length - 1))
+    .join("\n")
+    .trim();
+}
+
+function isBlockTextElement(tagName: string): boolean {
+  return tagName === "div" || tagName === "p" || tagName === "li";
+}
+
 function parseTextElement(
   $: ReturnType<typeof load>,
   cssRules: CssRule[],
@@ -474,10 +842,11 @@ function parseTextElement(
   role: ParsedText["role"],
   consumed: Set<Element>
 ): ParsedText | undefined {
-  const text = normalizeWhitespace($(element).text());
-  if (!text) {
+  const textLines = extractTextLines($, element);
+  if (textLines.length === 0) {
     return undefined;
   }
+  const text = textLines.join("\n");
   consumed.add(element);
 
   const resolvedStyle = resolveStyle($, cssRules, element);
@@ -499,6 +868,22 @@ function parseTextElement(
     height: estimate.height,
     style: resolveTextStyle(resolvedStyle),
   };
+}
+
+function extractTextLines($: ReturnType<typeof load>, element: Element): string[] {
+  const tspanLines = $(element)
+    .children("tspan")
+    .toArray()
+    .filter(isElement)
+    .map((child) => normalizeWhitespace($(child).text()))
+    .filter(Boolean);
+
+  if (tspanLines.length > 0) {
+    return tspanLines;
+  }
+
+  const text = normalizeWhitespace($(element).text());
+  return text ? [text] : [];
 }
 
 function hasLabelContainerClass($: ReturnType<typeof load>, element: Element): boolean {
@@ -537,7 +922,23 @@ function classifyPresetPolygonKind(points: { x: number; y: number }[]): ParsedNo
 }
 
 function classifyPathNodeKind(geometry: ParsedPathGeometry): ParsedNode["kind"] {
+  if (isLikelyEllipseGeometry(geometry)) {
+    return "ellipse";
+  }
+
   return geometry.hasCurves ? "roundRect" : "rect";
+}
+
+function isLikelyEllipseGeometry(geometry: ParsedPathGeometry): boolean {
+  const ratio = geometry.bounds.width / Math.max(geometry.bounds.height, 0.001);
+  const onlyCurves = geometry.commands.every((command) =>
+    command.type === "moveTo" ||
+    command.type === "quadraticTo" ||
+    command.type === "cubicTo" ||
+    command.type === "close"
+  );
+
+  return onlyCurves && ratio >= 0.75 && ratio <= 1.33;
 }
 
 function getBoundingBoxFromRect($: ReturnType<typeof load>, element: Element): BoundingBox | undefined {
@@ -762,8 +1163,8 @@ function parseGenericShape(
           ...style,
           fill: undefined,
         },
-        startArrow: $(element).attr("marker-start") ? "triangle" : undefined,
-        endArrow: $(element).attr("marker-end") ? "triangle" : undefined,
+        startArrow: parseMarkerArrowType($(element).attr("marker-start")),
+        endArrow: parseMarkerArrowType($(element).attr("marker-end")),
         closed: false,
       };
     }
@@ -812,8 +1213,8 @@ function parseGenericShape(
               fill: undefined,
             }
           : style,
-        startArrow: $(element).attr("marker-start") ? "triangle" : undefined,
-        endArrow: $(element).attr("marker-end") ? "triangle" : undefined,
+        startArrow: parseMarkerArrowType($(element).attr("marker-start")),
+        endArrow: parseMarkerArrowType($(element).attr("marker-end")),
         closed: isPolygon,
       };
     }
@@ -838,8 +1239,8 @@ function parseGenericShape(
             ...style,
             fill: undefined,
           },
-          startArrow: $(element).attr("marker-start") ? "triangle" : undefined,
-          endArrow: $(element).attr("marker-end") ? "triangle" : undefined,
+          startArrow: parseMarkerArrowType($(element).attr("marker-start")),
+          endArrow: parseMarkerArrowType($(element).attr("marker-end")),
           closed: false,
         };
       }
@@ -853,8 +1254,8 @@ function parseGenericShape(
         height: geometry.bounds.height,
         geometry,
         style,
-        startArrow: $(element).attr("marker-start") ? "triangle" : undefined,
-        endArrow: $(element).attr("marker-end") ? "triangle" : undefined,
+        startArrow: parseMarkerArrowType($(element).attr("marker-start")),
+        endArrow: parseMarkerArrowType($(element).attr("marker-end")),
         closed,
       };
     }
@@ -942,6 +1343,70 @@ function pushUniqueText(target: ParsedText[], seen: Set<string>, text: ParsedTex
 
   seen.add(key);
   target.push(text);
+}
+
+function parseMarkerArrowType(markerReference: string | undefined): LineArrowType | undefined {
+  if (!markerReference) {
+    return undefined;
+  }
+
+  const markerId = extractMarkerId(markerReference)?.toLowerCase();
+  if (!markerId) {
+    return undefined;
+  }
+
+  if (isDecoratedMarker(markerId)) {
+    return undefined;
+  }
+
+  if (markerId.includes("composition") || markerId.includes("aggregation")) {
+    return "diamond";
+  }
+
+  if (markerId.includes("lollipop") || markerId.includes("circle") || markerId.includes("oval")) {
+    return "oval";
+  }
+
+  if (markerId.includes("dependency")) {
+    return "stealth";
+  }
+
+  if (
+    markerId.includes("arrow") ||
+    markerId.includes("point") ||
+    markerId.includes("stick") ||
+    markerId.includes("cross")
+  ) {
+    return "arrow";
+  }
+
+  if (
+    markerId.includes("extension") ||
+    markerId.includes("triangle") ||
+    markerId.includes("filled") ||
+    markerId.includes("head")
+  ) {
+    return "triangle";
+  }
+
+  return "triangle";
+}
+
+function isDecoratedMarker(markerId: string): boolean {
+  return markerId.includes("_er-") || markerId.includes("er-");
+}
+
+function extractMarkerId(markerReference: string | undefined): string | undefined {
+  if (!markerReference) {
+    return undefined;
+  }
+
+  const urlMatch = markerReference.match(/url\(\s*#([^)]+)\s*\)/i);
+  if (urlMatch?.[1]) {
+    return urlMatch[1];
+  }
+
+  return markerReference.replace(/^#/, "").trim();
 }
 
 function getAbsolutePathGeometry(

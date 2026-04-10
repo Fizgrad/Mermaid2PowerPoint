@@ -30,8 +30,10 @@ test("convertMermaidFileToPptx supports richer Mermaid fixtures end to end", asy
     const clusterOutput = join(dir, "cluster-regression.pptx");
     const imageOutput = join(dir, "image-node.pptx");
     const sequenceOutput = join(dir, "sequence-basic.pptx");
+    const stateOutput = join(dir, "state-basic.pptx");
     const mindmapOutput = join(dir, "mindmap-basic.pptx");
     const erOutput = join(dir, "er-basic.pptx");
+    const erCardinalityOutput = join(dir, "er-cardinality.pptx");
     const ganttOutput = join(dir, "gantt-basic.pptx");
 
     await convertMermaidFileToPptx(getFixtureMermaidPath("shape-regression"), shapesOutput, {
@@ -49,10 +51,16 @@ test("convertMermaidFileToPptx supports richer Mermaid fixtures end to end", asy
     await convertMermaidFileToPptx(getFixtureMermaidPath("sequence-basic"), sequenceOutput, {
       noSandbox: true,
     });
+    await convertMermaidFileToPptx(getFixtureMermaidPath("state-basic"), stateOutput, {
+      noSandbox: true,
+    });
     await convertMermaidFileToPptx(getFixtureMermaidPath("mindmap-basic"), mindmapOutput, {
       noSandbox: true,
     });
     await convertMermaidFileToPptx(getFixtureMermaidPath("er-basic"), erOutput, {
+      noSandbox: true,
+    });
+    await convertMermaidFileToPptx(getFixtureMermaidPath("er-cardinality"), erCardinalityOutput, {
       noSandbox: true,
     });
     await convertMermaidFileToPptx(getFixtureMermaidPath("gantt-basic"), ganttOutput, {
@@ -64,8 +72,10 @@ test("convertMermaidFileToPptx supports richer Mermaid fixtures end to end", asy
     const clusterSlideXml = await readSlideXml(clusterOutput);
     const imageSlideXml = await readSlideXml(imageOutput);
     const sequenceSlideXml = await readSlideXml(sequenceOutput);
+    const stateSlideXml = await readSlideXml(stateOutput);
     const mindmapSlideXml = await readSlideXml(mindmapOutput);
     const erSlideXml = await readSlideXml(erOutput);
+    const erCardinalitySlideXml = await readSlideXml(erCardinalityOutput);
     const ganttSlideXml = await readSlideXml(ganttOutput);
 
     assert.match(shapesSlideXml, /<a:prstGeom prst="roundRect"/);
@@ -74,8 +84,11 @@ test("convertMermaidFileToPptx supports richer Mermaid fixtures end to end", asy
     assert.match(clusterSlideXml, /<a:t>API Layer<\/a:t>/);
     assert.match(imageSlideXml, /<p:pic>/);
     assert.match(sequenceSlideXml, /<a:t>Hello Bob<\/a:t>/);
+    assert.match(stateSlideXml, /<a:t>Idle<\/a:t>/);
+    assert.match(stateSlideXml, /<a:t>Worker<\/a:t>/);
     assert.match(mindmapSlideXml, /<a:t>Project<\/a:t>/);
     assert.match(erSlideXml, /<a:t>CUSTOMER<\/a:t>/);
+    assert.match(erCardinalitySlideXml, /<a:t>contains<\/a:t>/);
     assert.match(ganttSlideXml, /<a:t>Launch Plan<\/a:t>/);
   });
 });

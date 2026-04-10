@@ -16,9 +16,13 @@ const curvedBasisPath = join(repoRoot, "examples", "curved-basis.mmd");
 const clusterRegressionPath = join(repoRoot, "examples", "cluster-regression.mmd");
 const imageNodePath = join(repoRoot, "examples", "image-node.mmd");
 const sequenceBasicPath = join(repoRoot, "examples", "sequence-basic.mmd");
+const sequenceNoteBreaksPath = join(repoRoot, "examples", "sequence-note-breaks.mmd");
+const stateBasicPath = join(repoRoot, "examples", "state-basic.mmd");
 const mindmapBasicPath = join(repoRoot, "examples", "mindmap-basic.mmd");
 const erBasicPath = join(repoRoot, "examples", "er-basic.mmd");
+const erCardinalityPath = join(repoRoot, "examples", "er-cardinality.mmd");
 const ganttBasicPath = join(repoRoot, "examples", "gantt-basic.mmd");
+const classRelationsPath = join(repoRoot, "examples", "class-relations.mmd");
 
 const svgCache = new Map<string, Promise<string>>();
 
@@ -43,9 +47,13 @@ export function getFixtureMermaidPath(
     | "cluster-regression"
     | "image-node"
     | "sequence-basic"
+    | "sequence-note-breaks"
+    | "state-basic"
     | "mindmap-basic"
     | "er-basic"
+    | "er-cardinality"
     | "gantt-basic"
+    | "class-relations"
 ): string {
   switch (fixtureName) {
     case "shape-regression":
@@ -60,12 +68,20 @@ export function getFixtureMermaidPath(
       return imageNodePath;
     case "sequence-basic":
       return sequenceBasicPath;
+    case "sequence-note-breaks":
+      return sequenceNoteBreaksPath;
+    case "state-basic":
+      return stateBasicPath;
     case "mindmap-basic":
       return mindmapBasicPath;
     case "er-basic":
       return erBasicPath;
+    case "er-cardinality":
+      return erCardinalityPath;
     case "gantt-basic":
       return ganttBasicPath;
+    case "class-relations":
+      return classRelationsPath;
     case "simple-flow":
     default:
       return sampleMermaidPath;
@@ -81,9 +97,13 @@ export function getFixtureSvg(
     | "cluster-regression"
     | "image-node"
     | "sequence-basic"
+    | "sequence-note-breaks"
+    | "state-basic"
     | "mindmap-basic"
     | "er-basic"
+    | "er-cardinality"
     | "gantt-basic"
+    | "class-relations"
 ): Promise<string> {
   const mermaidPath = getFixtureMermaidPath(fixtureName);
   const cached = svgCache.get(mermaidPath);

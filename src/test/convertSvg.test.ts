@@ -74,33 +74,71 @@ test("convertSvgToPptx exports subgraph clusters and image nodes", async () => {
 
 test("convertSvgToPptx exports sequence, mindmap, ER, and gantt diagrams as editable PPT content", async () => {
   const sequenceSvg = await getFixtureSvg("sequence-basic");
+  const stateSvg = await getFixtureSvg("state-basic");
   const mindmapSvg = await getFixtureSvg("mindmap-basic");
   const erSvg = await getFixtureSvg("er-basic");
+  const erCardinalitySvg = await getFixtureSvg("er-cardinality");
   const ganttSvg = await getFixtureSvg("gantt-basic");
 
   await withTempDir(async (dir) => {
     const sequenceOutput = join(dir, "sequence-basic.pptx");
+    const stateOutput = join(dir, "state-basic.pptx");
     const mindmapOutput = join(dir, "mindmap-basic.pptx");
     const erOutput = join(dir, "er-basic.pptx");
+    const erCardinalityOutput = join(dir, "er-cardinality.pptx");
     const ganttOutput = join(dir, "gantt-basic.pptx");
 
     await convertSvgToPptx(sequenceSvg, sequenceOutput);
+    await convertSvgToPptx(stateSvg, stateOutput);
     await convertSvgToPptx(mindmapSvg, mindmapOutput);
     await convertSvgToPptx(erSvg, erOutput);
+    await convertSvgToPptx(erCardinalitySvg, erCardinalityOutput);
     await convertSvgToPptx(ganttSvg, ganttOutput);
 
     const sequenceSlideXml = await readSlideXml(sequenceOutput);
+    const stateSlideXml = await readSlideXml(stateOutput);
     const mindmapSlideXml = await readSlideXml(mindmapOutput);
     const erSlideXml = await readSlideXml(erOutput);
+    const erCardinalitySlideXml = await readSlideXml(erCardinalityOutput);
     const ganttSlideXml = await readSlideXml(ganttOutput);
 
     assert.match(sequenceSlideXml, /<a:t>Hello Bob<\/a:t>/);
     assert.match(sequenceSlideXml, /<a:srgbClr val="333333"/);
+    assert.match(stateSlideXml, /<a:t>Running<\/a:t>/);
+    assert.match(stateSlideXml, /<a:t>Worker<\/a:t>/);
+    assert.match(stateSlideXml, /<a:prstGeom prst="roundRect"/);
     assert.match(mindmapSlideXml, /<a:t>Project<\/a:t>/);
     assert.match(mindmapSlideXml, /<a:prstGeom prst="roundRect"/);
     assert.match(erSlideXml, /<a:t>CUSTOMER<\/a:t>/);
     assert.match(erSlideXml, /<a:t>places<\/a:t>/);
+    assert.match(erCardinalitySlideXml, /<a:t>PROFILE<\/a:t>/);
+    assert.match(erCardinalitySlideXml, /<a:prstGeom prst="ellipse"/);
+    assert.match(erCardinalitySlideXml, /<a:custGeom>/);
     assert.match(ganttSlideXml, /<a:t>Launch Plan<\/a:t>/);
     assert.match(ganttSlideXml, /<a:prstGeom prst="roundRect"/);
+  });
+});
+
+test("convertSvgToPptx keeps merged sequence notes and class relation marker types", async () => {
+  const sequenceNoteSvg = await getFixtureSvg("sequence-note-breaks");
+  const classRelationsSvg = await getFixtureSvg("class-relations");
+
+  await withTempDir(async (dir) => {
+    const sequenceOutput = join(dir, "sequence-note-breaks.pptx");
+    const classOutput = join(dir, "class-relations.pptx");
+
+    await convertSvgToPptx(sequenceNoteSvg, sequenceOutput);
+    await convertSvgToPptx(classRelationsSvg, classOutput);
+
+    const sequenceSlideXml = await readSlideXml(sequenceOutput);
+    const classSlideXml = await readSlideXml(classOutput);
+
+    assert.match(sequenceSlideXml, /<a:t>加载镜像类描述<\/a:t>/);
+    assert.match(sequenceSlideXml, /<a:t>如果有Profile<\/a:t>/);
+    assert.match(sequenceSlideXml, /<a:t>ProfileCompilationInfo的交集<\/a:t>/);
+    assert.match(classSlideXml, /type="diamond"/);
+    assert.match(classSlideXml, /type="oval"/);
+    assert.match(classSlideXml, /type="triangle"/);
+    assert.match(classSlideXml, /type="stealth"/);
   });
 });

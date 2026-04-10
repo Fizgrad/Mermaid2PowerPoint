@@ -7,16 +7,20 @@
 
 ## 支持范围
 
-- `flowchart` / `graph`、`sequenceDiagram`、`mindmap`、`erDiagram`、`gantt`
+- `flowchart` / `graph`、`sequenceDiagram`、`stateDiagram-v2`、`mindmap`、`erDiagram`、`gantt`、`classDiagram`
 - 矩形、圆角矩形、圆/椭圆、菱形、六边形节点
 - `subgraph` / `cluster` 容器和标题
 - Mermaid 图片节点 `@{ img: ... }`
-- `foreignObject` 和普通 SVG `<text>` 文本
+- `foreignObject`、普通 SVG `<text>`、`<tspan>` 多行文本
 - `classDef` 节点填充色、边框色、字号和文本色
 - `linkStyle` 线条颜色、粗细、虚线
 - edge label 背景框、彩色边框和主题色文本
+- sequence note 的 `<br/>` 多行文本合并导出
+- state note、多层 state cluster、起止状态节点
+- class / object 风格关系的三角、菱形、圆点等常见连接符号
+- ER cardinality marker 的条线、圆点和 crow-foot 装饰图形
 - 直线、折线和常见三次/二次曲线路径
-- mindmap / ER / gantt / sequence 的通用 SVG primitive 映射
+- mindmap / ER / gantt / sequence / state / class 的通用 SVG primitive 映射
 - 导出为原生 PowerPoint geometry，不嵌入图片
 
 处理流程：
@@ -28,7 +32,8 @@
 ## 限制
 
 - `flowchart` 仍然是语义化映射最完整的一类图
-- `sequenceDiagram`、`mindmap`、`erDiagram`、`gantt` 已支持，但部分结构仍通过通用 SVG primitive 重建，而不是更高层语义对象
+- `sequenceDiagram`、`stateDiagram-v2`、`mindmap`、`erDiagram`、`gantt`、`classDiagram` 已支持，但部分结构仍通过通用 SVG primitive 重建，而不是更高层语义对象
+- ER crow-foot 已导出为可编辑装饰图形，但和浏览器 SVG 仍不是逐像素完全一致
 - 复杂图标节点、泳道、部分特殊 marker 和更多高级 shape 还没有完整覆盖
 - 对极少数 SVG `path` 指令仍会保守降级，目标是保持可编辑和结构正确
 - 不是逐像素复刻 SVG，重点是“PPT 可编辑”而不是“SVG 100% 像素级一致”
@@ -140,9 +145,13 @@ const buffer = await convertMermaidCodeToPptxBuffer("flowchart TD\nA-->B");
 - `examples/cluster-regression.mmd`: subgraph / cluster
 - `examples/image-node.mmd`: 图片节点
 - `examples/sequence-basic.mmd`: 基础时序图
+- `examples/sequence-note-breaks.mmd`: 时序图 note 多行文本
+- `examples/state-basic.mmd`: 基础状态图
 - `examples/mindmap-basic.mmd`: 基础脑图
 - `examples/er-basic.mmd`: 基础 ER 图
+- `examples/er-cardinality.mmd`: ER cardinality 关系端点
 - `examples/gantt-basic.mmd`: 基础甘特图
+- `examples/class-relations.mmd`: 类图 / 对象关系连接符号
 
 ## 测试
 
@@ -155,7 +164,7 @@ npm test
 - Mermaid SVG 解析测试
 - 节点形状和样式回归测试
 - cluster / image node 回归测试
-- sequence / mindmap / ER / gantt 回归测试
+- sequence / state / mindmap / ER / gantt 回归测试
 - 曲线路径和 edge label 回归测试
 - SVG -> PPTX 原生 geometry 导出测试
 - `.mmd -> .pptx` 端到端测试

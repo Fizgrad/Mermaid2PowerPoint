@@ -1,0 +1,16 @@
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Running: start
+    Running --> Choice: check
+    Choice --> Success: ok
+    Choice --> Failed: err
+    state Running {
+        [*] --> Working
+        Working --> Done: finish
+    }
+    note right of Running
+        Worker<br/>loop
+    end note
+    Success --> [*]
+    Failed --> [*]
+
