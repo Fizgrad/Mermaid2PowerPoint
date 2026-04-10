@@ -1,0 +1,11 @@
+gantt
+  title Launch Plan
+  dateFormat  YYYY-MM-DD
+  axisFormat  %m/%d
+  section Product
+  Spec          :done,    spec, 2026-04-01, 2d
+  Build         :active,  build, after spec, 3d
+  QA            :         qa, after build, 2d
+  section Launch
+  Prep          :         prep, 2026-04-08, 1d
+  Release       :milestone, rel, 2026-04-09, 0d

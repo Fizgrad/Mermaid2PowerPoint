@@ -15,6 +15,10 @@ const styledLinksPath = join(repoRoot, "examples", "styled-links.mmd");
 const curvedBasisPath = join(repoRoot, "examples", "curved-basis.mmd");
 const clusterRegressionPath = join(repoRoot, "examples", "cluster-regression.mmd");
 const imageNodePath = join(repoRoot, "examples", "image-node.mmd");
+const sequenceBasicPath = join(repoRoot, "examples", "sequence-basic.mmd");
+const mindmapBasicPath = join(repoRoot, "examples", "mindmap-basic.mmd");
+const erBasicPath = join(repoRoot, "examples", "er-basic.mmd");
+const ganttBasicPath = join(repoRoot, "examples", "gantt-basic.mmd");
 
 const svgCache = new Map<string, Promise<string>>();
 
@@ -31,7 +35,17 @@ export function getSampleSvg(): Promise<string> {
 }
 
 export function getFixtureMermaidPath(
-  fixtureName: "simple-flow" | "shape-regression" | "styled-links" | "curved-basis" | "cluster-regression" | "image-node"
+  fixtureName:
+    | "simple-flow"
+    | "shape-regression"
+    | "styled-links"
+    | "curved-basis"
+    | "cluster-regression"
+    | "image-node"
+    | "sequence-basic"
+    | "mindmap-basic"
+    | "er-basic"
+    | "gantt-basic"
 ): string {
   switch (fixtureName) {
     case "shape-regression":
@@ -44,6 +58,14 @@ export function getFixtureMermaidPath(
       return clusterRegressionPath;
     case "image-node":
       return imageNodePath;
+    case "sequence-basic":
+      return sequenceBasicPath;
+    case "mindmap-basic":
+      return mindmapBasicPath;
+    case "er-basic":
+      return erBasicPath;
+    case "gantt-basic":
+      return ganttBasicPath;
     case "simple-flow":
     default:
       return sampleMermaidPath;
@@ -51,7 +73,17 @@ export function getFixtureMermaidPath(
 }
 
 export function getFixtureSvg(
-  fixtureName: "simple-flow" | "shape-regression" | "styled-links" | "curved-basis" | "cluster-regression" | "image-node"
+  fixtureName:
+    | "simple-flow"
+    | "shape-regression"
+    | "styled-links"
+    | "curved-basis"
+    | "cluster-regression"
+    | "image-node"
+    | "sequence-basic"
+    | "mindmap-basic"
+    | "er-basic"
+    | "gantt-basic"
 ): Promise<string> {
   const mermaidPath = getFixtureMermaidPath(fixtureName);
   const cached = svgCache.get(mermaidPath);

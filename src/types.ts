@@ -128,6 +128,21 @@ export interface ParsedImageNode {
   label?: ParsedText;
 }
 
+export interface ParsedGenericShape {
+  id: string;
+  kind: "rect" | "roundRect" | "ellipse" | "diamond" | "hexagon" | "line" | "customGeometry";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  style: ShapeStyle;
+  geometry?: ParsedPathGeometry;
+  points?: PointPx[];
+  startArrow?: "triangle";
+  endArrow?: "triangle";
+  closed?: boolean;
+}
+
 export interface ParsedEdge {
   id: string;
   points: PointPx[];
@@ -144,6 +159,7 @@ export interface ParsedDiagram {
   clusters: ParsedCluster[];
   nodes: ParsedNode[];
   imageNodes: ParsedImageNode[];
+  genericShapes: ParsedGenericShape[];
   edges: ParsedEdge[];
   floatingTexts: ParsedText[];
 }

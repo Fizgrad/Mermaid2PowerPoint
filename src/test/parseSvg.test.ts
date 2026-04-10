@@ -89,3 +89,65 @@ test("parseMermaidFlowchartSvg extracts image nodes with labels and image source
   assert.equal(diagram.imageNodes[0].frameStyle?.fill?.hex, "ECECFF");
   assert.equal(diagram.imageNodes[0].frameStyle?.stroke?.hex, "9370DB");
 });
+
+test("parseMermaidFlowchartSvg preserves Mermaid sequence diagrams as editable shapes and labels", async () => {
+  const svg = await getFixtureSvg("sequence-basic");
+  const diagram = parseMermaidFlowchartSvg(svg);
+
+  assert.equal(diagram.genericShapes.filter((shape) => shape.kind === "line").length >= 4, true);
+  assert.equal(
+    diagram.genericShapes.some((shape) => shape.kind === "line" && shape.style.stroke?.hex === "333333"),
+    true
+  );
+  assert.equal(
+    diagram.floatingTexts.some((text) => text.text === "Hello Bob"),
+    true
+  );
+  assert.equal(
+    diagram.floatingTexts.some((text) => text.text === "Sync complete"),
+    true
+  );
+});
+
+test("parseMermaidFlowchartSvg parses Mermaid mindmap nodes and themed branch colors", async () => {
+  const svg = await getFixtureSvg("mindmap-basic");
+  const diagram = parseMermaidFlowchartSvg(svg);
+
+  assert.equal(diagram.nodes.length, 10);
+  assert.equal(diagram.nodes[0].kind, "ellipse");
+  assert.equal(
+    diagram.nodes.some((node) => node.kind === "roundRect" && node.text?.text === "Engineering"),
+    true
+  );
+  assert.equal(diagram.nodes.some((node) => node.style.fill?.hex === "FFFF78"), true);
+  assert.equal(diagram.edges.some((edge) => edge.style.stroke?.hex === "FFFF78"), true);
+  assert.equal(diagram.edges.some((edge) => edge.geometry?.hasCurves), true);
+});
+
+test("parseMermaidFlowchartSvg parses Mermaid ER diagrams into entity nodes, labels, and relationships", async () => {
+  const svg = await getFixtureSvg("er-basic");
+  const diagram = parseMermaidFlowchartSvg(svg);
+
+  assert.deepEqual(
+    diagram.nodes.map((node) => node.text?.text),
+    ["CUSTOMER", "ORDER"]
+  );
+  assert.equal(diagram.edges.length, 1);
+  assert.equal(diagram.edges[0].label?.text, "places");
+  assert.equal(diagram.edges[0].style.stroke?.hex, "333333");
+  assert.equal(
+    diagram.floatingTexts.some((text) => text.text === "created_at"),
+    true
+  );
+});
+
+test("parseMermaidFlowchartSvg parses Mermaid gantt charts into timeline bars and labels", async () => {
+  const svg = await getFixtureSvg("gantt-basic");
+  const diagram = parseMermaidFlowchartSvg(svg);
+
+  assert.equal(diagram.genericShapes.some((shape) => shape.kind === "roundRect"), true);
+  assert.equal(diagram.genericShapes.some((shape) => shape.style.fill?.hex === "8A90DD"), true);
+  assert.equal(diagram.genericShapes.some((shape) => shape.style.fill?.hex === "BFC7FF"), true);
+  assert.equal(diagram.floatingTexts.some((text) => text.text === "Launch Plan"), true);
+  assert.equal(diagram.floatingTexts.some((text) => text.text === "Release"), true);
+});

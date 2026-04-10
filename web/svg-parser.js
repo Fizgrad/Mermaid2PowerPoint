@@ -20,12 +20,14 @@ export function parseMermaidFlowchartSvgElement(svgRoot) {
 
   const viewBox = parseViewBox(svgRoot.getAttribute("viewBox"), svgRoot.getAttribute("width"), svgRoot.getAttribute("height"));
   const background = parseSvgBackground(svgRoot);
-  const edgeLabelMap = buildEdgeLabelMap(svgRoot);
-  const clusters = parseClusters(svgRoot);
-  const nodes = parseNodes(svgRoot);
-  const imageNodes = parseImageNodes(svgRoot);
-  const edges = parseEdges(svgRoot, edgeLabelMap);
-  const floatingTexts = parseFloatingTexts(svgRoot);
+  const consumed = new Set();
+  const edgeLabelMap = buildEdgeLabelMap(svgRoot, consumed);
+  const clusters = parseClusters(svgRoot, consumed);
+  const nodes = parseNodes(svgRoot, consumed);
+  const imageNodes = parseImageNodes(svgRoot, consumed);
+  const edges = parseEdges(svgRoot, edgeLabelMap, consumed);
+  const genericShapes = parseGenericShapes(svgRoot, consumed);
+  const floatingTexts = parseFloatingTexts(svgRoot, consumed);
 
   return {
     viewBox,
@@ -33,12 +35,13 @@ export function parseMermaidFlowchartSvgElement(svgRoot) {
     clusters,
     nodes,
     imageNodes,
+    genericShapes,
     edges,
     floatingTexts,
   };
 }
 
-function parseClusters(svgRoot) {
+function parseClusters(svgRoot, consumed) {
   const clusters = [];
 
   for (const element of svgRoot.querySelectorAll(".clusters .cluster")) {
@@ -53,7 +56,8 @@ function parseClusters(svgRoot) {
     }
 
     const labelElement = findDirectChild(element, (child) => child.classList.contains("cluster-label"));
-    const label = labelElement ? parseLabelText(labelElement, "free") : undefined;
+    const label = labelElement ? parseLabelText(labelElement, "free", consumed) : undefined;
+    consumed.add(rect);
 
     clusters.push({
       id: element.getAttribute("id") ?? `cluster-${clusters.length + 1}`,
@@ -69,7 +73,7 @@ function parseClusters(svgRoot) {
   return clusters;
 }
 
-function parseNodes(svgRoot) {
+function parseNodes(svgRoot, consumed) {
   const nodes = [];
 
   for (const element of svgRoot.querySelectorAll("g.node")) {
@@ -85,15 +89,18 @@ function parseNodes(svgRoot) {
       y: shape.bounds.y,
       width: shape.bounds.width,
       height: shape.bounds.height,
-      style: resolveShapeStyle(shape.styleElement),
-      text: parseLabelText(element, "node"),
+      style: shape.style ?? resolveShapeStyle(shape.styleElement),
+      text: parseLabelText(element, "node", consumed),
     });
+    for (const consumedElement of shape.consumedElements) {
+      consumed.add(consumedElement);
+    }
   }
 
   return nodes;
 }
 
-function parseImageNodes(svgRoot) {
+function parseImageNodes(svgRoot, consumed) {
   const imageNodes = [];
 
   for (const element of svgRoot.querySelectorAll(".image-shape")) {
@@ -113,6 +120,10 @@ function parseImageNodes(svgRoot) {
     }
 
     const labelElement = findDirectChild(element, (child) => child.classList.contains("label"));
+    consumed.add(imageElement);
+    for (const framePath of getImageFramePathElements(element)) {
+      consumed.add(framePath);
+    }
     imageNodes.push({
       id: element.getAttribute("id") ?? `image-node-${imageNodes.length + 1}`,
       x: bounds.x,
@@ -122,7 +133,7 @@ function parseImageNodes(svgRoot) {
       href,
       preserveAspectRatio: imageElement.getAttribute("preserveAspectRatio") ?? undefined,
       frameStyle: resolveImageFrameStyle(element),
-      label: labelElement ? parseLabelText(labelElement, "node") : undefined,
+      label: labelElement ? parseLabelText(labelElement, "node", consumed) : undefined,
     });
   }
 
@@ -133,6 +144,18 @@ function parseNodeShape(nodeElement) {
   const directChildren = Array.from(nodeElement.children);
 
   for (const child of directChildren) {
+    if (child.tagName.toLowerCase() === "path" && hasRenderableShapeStyle(child)) {
+      const geometry = getAbsolutePathGeometry(child);
+      if (geometry) {
+        return {
+          kind: classifyPathNodeKind(geometry),
+          bounds: geometry.bounds,
+          styleElement: child,
+          consumedElements: [child],
+        };
+      }
+    }
+
     if (!hasLabelContainerClass(child)) {
       continue;
     }
@@ -141,14 +164,14 @@ function parseNodeShape(nodeElement) {
     if (tagName === "rect") {
       const bounds = getBoundingBoxFromRect(child);
       if (bounds) {
-        return { kind: "rect", bounds, styleElement: child };
+        return { kind: "rect", bounds, styleElement: child, consumedElements: [child] };
       }
     }
 
     if (tagName === "circle" || tagName === "ellipse") {
       const bounds = getBoundingBoxFromEllipse(child);
       if (bounds) {
-        return { kind: "ellipse", bounds, styleElement: child };
+        return { kind: "ellipse", bounds, styleElement: child, consumedElements: [child] };
       }
     }
 
@@ -160,13 +183,14 @@ function parseNodeShape(nodeElement) {
           kind: classifyPolygonKind(points),
           bounds,
           styleElement: child,
+          consumedElements: [child],
         };
       }
     }
   }
 
   for (const child of directChildren) {
-    if (child.tagName.toLowerCase() !== "g" || !hasRoundedOuterPathClass(child)) {
+    if (child.tagName.toLowerCase() !== "g" || !hasOuterPathGroupClass(child)) {
       continue;
     }
 
@@ -178,11 +202,20 @@ function parseNodeShape(nodeElement) {
     );
 
     if (bounds) {
-      const styleElement = pathChildren.find((pathChild) => hasRenderableShapeStyle(pathChild)) ?? child;
+      const styleElements = pathChildren.filter((pathChild) => hasRenderableShapeStyle(pathChild));
+      const styleElement = styleElements[0] ?? child;
+      const mergedStyle = mergeShapeStyles(styleElements.map((pathChild) => resolveShapeStyle(pathChild)));
+      const kind = classifyPathNodeKind(getAbsolutePathGeometry(styleElement) ?? {
+        bounds,
+        commands: [],
+        hasCurves: false,
+      });
       return {
-        kind: "roundRect",
+        kind,
         bounds,
         styleElement,
+        consumedElements: pathChildren,
+        style: mergedStyle,
       };
     }
   }
@@ -190,7 +223,7 @@ function parseNodeShape(nodeElement) {
   return undefined;
 }
 
-function parseEdges(svgRoot, edgeLabelMap) {
+function parseEdges(svgRoot, edgeLabelMap, consumed) {
   const edges = [];
 
   for (const element of svgRoot.querySelectorAll(".edgePaths path, path.flowchart-link")) {
@@ -200,6 +233,7 @@ function parseEdges(svgRoot, edgeLabelMap) {
     if (points.length < 2) {
       continue;
     }
+    consumed.add(element);
 
     edges.push({
       id,
@@ -218,7 +252,7 @@ function parseEdges(svgRoot, edgeLabelMap) {
   return edges;
 }
 
-function parseFloatingTexts(svgRoot) {
+function parseFloatingTexts(svgRoot, consumed) {
   const texts = [];
   const seen = new Set();
 
@@ -227,14 +261,27 @@ function parseFloatingTexts(svgRoot) {
       continue;
     }
 
-    const parsed = parseTextElement(child, "free");
+    const parsed = parseTextElement(child, "free", consumed);
     if (parsed) {
       pushUniqueText(texts, seen, parsed);
     }
   }
 
   for (const element of svgRoot.querySelectorAll(".flowchartTitleText")) {
-    const parsed = parseTextElement(element, "free");
+    const parsed = parseTextElement(element, "free", consumed);
+    if (parsed) {
+      pushUniqueText(texts, seen, parsed);
+    }
+  }
+
+  for (const element of svgRoot.querySelectorAll("foreignObject, text")) {
+    if (consumed.has(element) || hasConsumedAncestor(element, consumed) || hasIgnoredGenericAncestor(element)) {
+      continue;
+    }
+
+    const parsed = element.tagName.toLowerCase() === "foreignobject"
+      ? parseForeignObjectText(element, "free", consumed)
+      : parseTextElement(element, "free", consumed);
     if (parsed) {
       pushUniqueText(texts, seen, parsed);
     }
@@ -243,7 +290,7 @@ function parseFloatingTexts(svgRoot) {
   return texts;
 }
 
-function buildEdgeLabelMap(svgRoot) {
+function buildEdgeLabelMap(svgRoot, consumed) {
   const labels = new Map();
 
   for (const element of svgRoot.querySelectorAll(".edgeLabels .label[data-id]")) {
@@ -252,7 +299,7 @@ function buildEdgeLabelMap(svgRoot) {
       continue;
     }
 
-    const parsed = parseLabelText(element, "edge");
+    const parsed = parseLabelText(element, "edge", consumed);
     if (parsed?.text) {
       labels.set(id, parsed);
     }
@@ -261,25 +308,26 @@ function buildEdgeLabelMap(svgRoot) {
   return labels;
 }
 
-function parseLabelText(container, role) {
+function parseLabelText(container, role, consumed) {
   const foreignObject = container.querySelector("foreignObject");
   if (foreignObject) {
-    return parseForeignObjectText(foreignObject, role);
+    return parseForeignObjectText(foreignObject, role, consumed);
   }
 
   const textElement = container.querySelector("text");
   if (textElement) {
-    return parseTextElement(textElement, role);
+    return parseTextElement(textElement, role, consumed);
   }
 
   return undefined;
 }
 
-function parseForeignObjectText(element, role) {
+function parseForeignObjectText(element, role, consumed) {
   const text = normalizeWhitespace(element.textContent ?? "");
   if (!text) {
     return undefined;
   }
+  consumed?.add(element);
 
   const x = parseNumber(element.getAttribute("x")) ?? 0;
   const y = parseNumber(element.getAttribute("y")) ?? 0;
@@ -302,11 +350,12 @@ function parseForeignObjectText(element, role) {
   };
 }
 
-function parseTextElement(element, role) {
+function parseTextElement(element, role, consumed) {
   const text = normalizeWhitespace(element.textContent ?? "");
   if (!text) {
     return undefined;
   }
+  consumed?.add(element);
 
   const resolvedStyle = resolveTextStyle(element);
   const fontSizePx = resolvedStyle.fontSizePx ?? 16;
@@ -351,6 +400,22 @@ function classifyPolygonKind(points) {
   }
 
   return "diamond";
+}
+
+function classifyPresetPolygonKind(points) {
+  if (points.length >= 6) {
+    return "hexagon";
+  }
+
+  if (points.length === 4) {
+    return "diamond";
+  }
+
+  return undefined;
+}
+
+function classifyPathNodeKind(geometry) {
+  return geometry.hasCurves ? "roundRect" : "rect";
 }
 
 function getBoundingBoxFromRect(element) {
@@ -457,21 +522,249 @@ function getBoundingBoxFromImage(element) {
 }
 
 function resolveImageFrameStyle(container) {
-  const styles = Array.from(container.querySelectorAll("path"))
-    .filter((pathElement) => !pathElement.closest(".label"))
-    .map((pathElement) => resolveShapeStyle(pathElement))
-    .filter((style) => Boolean(style.fill || style.stroke));
+  return mergeShapeStyles(
+    getImageFramePathElements(container).map((pathElement) => resolveShapeStyle(pathElement))
+  );
+}
 
-  if (styles.length === 0) {
+function getImageFramePathElements(container) {
+  return Array.from(container.querySelectorAll("path"))
+    .filter((pathElement) => !pathElement.closest(".label"));
+}
+
+function parseGenericShapes(svgRoot, consumed) {
+  const genericShapes = [];
+
+  for (const element of svgRoot.querySelectorAll("rect, circle, ellipse, polygon, path, line, polyline")) {
+    if (consumed.has(element) || hasConsumedAncestor(element, consumed) || hasIgnoredGenericAncestor(element)) {
+      continue;
+    }
+
+    const parsed = parseGenericShape(element, genericShapes.length + 1);
+    if (!parsed) {
+      continue;
+    }
+
+    consumed.add(element);
+    genericShapes.push(parsed);
+  }
+
+  return genericShapes;
+}
+
+function parseGenericShape(element, index) {
+  const tagName = element.tagName.toLowerCase();
+  const style = resolveShapeStyle(element);
+  const id = element.getAttribute("id") ?? `generic-shape-${index}`;
+
+  switch (tagName) {
+    case "rect": {
+      const bounds = getBoundingBoxFromRect(element);
+      if (!bounds || !hasRenderableShapeStyle(element)) {
+        return undefined;
+      }
+
+      const rx = parseNumber(element.getAttribute("rx")) ?? 0;
+      const ry = parseNumber(element.getAttribute("ry")) ?? 0;
+      return {
+        id,
+        kind: rx > 0 || ry > 0 ? "roundRect" : "rect",
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        style,
+        closed: true,
+      };
+    }
+    case "circle":
+    case "ellipse": {
+      const bounds = getBoundingBoxFromEllipse(element);
+      if (!bounds || !hasRenderableShapeStyle(element)) {
+        return undefined;
+      }
+
+      return {
+        id,
+        kind: "ellipse",
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        style,
+        closed: true,
+      };
+    }
+    case "line": {
+      const points = getAbsoluteLinePoints(element);
+      if (!points || !style.stroke) {
+        return undefined;
+      }
+
+      return {
+        id,
+        kind: "line",
+        x: Math.min(points[0].x, points[1].x),
+        y: Math.min(points[0].y, points[1].y),
+        width: Math.abs(points[1].x - points[0].x),
+        height: Math.abs(points[1].y - points[0].y),
+        points,
+        style: {
+          ...style,
+          fill: undefined,
+        },
+        startArrow: element.getAttribute("marker-start") ? "triangle" : undefined,
+        endArrow: element.getAttribute("marker-end") ? "triangle" : undefined,
+        closed: false,
+      };
+    }
+    case "polyline":
+    case "polygon": {
+      const rawPoints = parsePoints(element.getAttribute("points"));
+      const points = getAbsolutePoints(element, rawPoints);
+      if (points.length < 2 || !hasRenderableShapeStyle(element)) {
+        return undefined;
+      }
+
+      const bounds = getBoundingBoxFromPolygon(element, rawPoints);
+      if (!bounds) {
+        return undefined;
+      }
+
+      const isPolygon = tagName === "polygon";
+      if (isPolygon) {
+        const presetKind = classifyPresetPolygonKind(points);
+        if (presetKind) {
+          return {
+            id,
+            kind: presetKind,
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+            height: bounds.height,
+            style,
+            closed: true,
+          };
+        }
+      }
+
+      const geometry = pointsToGeometry(points, isPolygon);
+      return {
+        id,
+        kind: points.length === 2 && !isPolygon && style.stroke ? "line" : "customGeometry",
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        geometry: points.length === 2 && !isPolygon ? undefined : geometry,
+        points: points.length === 2 && !isPolygon ? points : undefined,
+        style: points.length === 2 && !isPolygon
+          ? {
+              ...style,
+              fill: undefined,
+            }
+          : style,
+        startArrow: element.getAttribute("marker-start") ? "triangle" : undefined,
+        endArrow: element.getAttribute("marker-end") ? "triangle" : undefined,
+        closed: isPolygon,
+      };
+    }
+    case "path": {
+      const geometry = getAbsolutePathGeometry(element);
+      if (!geometry || !hasRenderableShapeStyle(element)) {
+        return undefined;
+      }
+
+      const closed = geometry.commands.some((command) => command.type === "close") || Boolean(style.fill);
+      const points = geometryToPoints(geometry);
+      if (!closed && points.length === 2 && !geometry.hasCurves && style.stroke) {
+        return {
+          id,
+          kind: "line",
+          x: Math.min(points[0].x, points[1].x),
+          y: Math.min(points[0].y, points[1].y),
+          width: Math.abs(points[1].x - points[0].x),
+          height: Math.abs(points[1].y - points[0].y),
+          points,
+          style: {
+            ...style,
+            fill: undefined,
+          },
+          startArrow: element.getAttribute("marker-start") ? "triangle" : undefined,
+          endArrow: element.getAttribute("marker-end") ? "triangle" : undefined,
+          closed: false,
+        };
+      }
+
+      return {
+        id,
+        kind: "customGeometry",
+        x: geometry.bounds.x,
+        y: geometry.bounds.y,
+        width: geometry.bounds.width,
+        height: geometry.bounds.height,
+        geometry,
+        style,
+        startArrow: element.getAttribute("marker-start") ? "triangle" : undefined,
+        endArrow: element.getAttribute("marker-end") ? "triangle" : undefined,
+        closed,
+      };
+    }
+    default:
+      return undefined;
+  }
+}
+
+function getAbsoluteLinePoints(element) {
+  const x1 = parseNumber(element.getAttribute("x1"));
+  const y1 = parseNumber(element.getAttribute("y1"));
+  const x2 = parseNumber(element.getAttribute("x2"));
+  const y2 = parseNumber(element.getAttribute("y2"));
+  if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) {
     return undefined;
   }
 
-  return styles.reduce((merged, current) => ({
-    fill: merged.fill ?? current.fill,
-    stroke: merged.stroke ?? current.stroke,
-    strokeWidthPx: merged.strokeWidthPx ?? current.strokeWidthPx,
-    dashPattern: merged.dashPattern ?? current.dashPattern,
-  }), {});
+  const offset = getAbsoluteTranslate(element);
+  return [
+    { x: offset.x + x1, y: offset.y + y1 },
+    { x: offset.x + x2, y: offset.y + y2 },
+  ];
+}
+
+function getAbsolutePoints(element, points) {
+  const offset = getAbsoluteTranslate(element);
+  return points.map((point) => ({
+    x: point.x + offset.x,
+    y: point.y + offset.y,
+  }));
+}
+
+function pointsToGeometry(points, closed) {
+  if (points.length < 2) {
+    return undefined;
+  }
+
+  const bounds = unionBoundingBoxes(
+    points.map((point) => ({
+      x: point.x,
+      y: point.y,
+      width: 0,
+      height: 0,
+    }))
+  );
+  if (!bounds) {
+    return undefined;
+  }
+
+  return {
+    bounds,
+    commands: [
+      { type: "moveTo", x: points[0].x, y: points[0].y },
+      ...points.slice(1).map((point) => ({ type: "lineTo", x: point.x, y: point.y })),
+      ...(closed ? [{ type: "close" }] : []),
+    ],
+    hasCurves: false,
+  };
 }
 
 function getAbsolutePathGeometry(element) {
@@ -559,6 +852,20 @@ function parseSvgBackground(svgRoot) {
   return parseColor(window.getComputedStyle(svgRoot).backgroundColor || svgRoot.style.backgroundColor);
 }
 
+function mergeShapeStyles(styles) {
+  const renderableStyles = styles.filter((style) => style?.fill || style?.stroke);
+  if (renderableStyles.length === 0) {
+    return undefined;
+  }
+
+  return renderableStyles.reduce((merged, current) => ({
+    fill: merged.fill ?? current.fill,
+    stroke: merged.stroke ?? current.stroke,
+    strokeWidthPx: merged.strokeWidthPx ?? current.strokeWidthPx,
+    dashPattern: merged.dashPattern ?? current.dashPattern,
+  }), {});
+}
+
 function getAbsoluteTranslate(element) {
   let current = element;
   let x = 0;
@@ -585,9 +892,30 @@ function hasRoundedOuterPathClass(element) {
   return element.classList.contains("label-container") && element.classList.contains("outer-path");
 }
 
+function hasOuterPathGroupClass(element) {
+  return element.classList.contains("outer-path") || hasRoundedOuterPathClass(element);
+}
+
 function hasRenderableShapeStyle(element) {
   const style = resolveShapeStyle(element);
   return Boolean(style.fill || style.stroke);
+}
+
+function hasIgnoredGenericAncestor(element) {
+  return Boolean(element.closest("defs, marker, style, clipPath, mask, pattern, symbol, filter"));
+}
+
+function hasConsumedAncestor(element, consumed) {
+  let current = element.parentElement;
+  while (current) {
+    if (consumed.has(current)) {
+      return true;
+    }
+
+    current = current.parentElement;
+  }
+
+  return false;
 }
 
 function findDirectChild(element, predicate) {

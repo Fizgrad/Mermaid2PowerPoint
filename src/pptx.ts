@@ -7,6 +7,7 @@ import type {
   ParsedCluster,
   ParsedDiagram,
   ParsedEdge,
+  ParsedGenericShape,
   ParsedImageNode,
   ParsedNode,
   ParsedPathGeometry,
@@ -80,6 +81,7 @@ function buildPresentation(
     slide.background = { color: diagram.background.hex };
   }
 
+  addGenericShapes(slide, pptx, diagram, paddingPx);
   addClusters(slide, diagram, paddingPx);
   addEdges(slide, pptx, diagram, paddingPx);
   addNodes(slide, pptx, diagram, paddingPx);
@@ -87,6 +89,12 @@ function buildPresentation(
   addFloatingTexts(slide, diagram, paddingPx);
 
   return { diagram, paddingPx, pptx };
+}
+
+function addGenericShapes(slide: any, pptx: any, diagram: ParsedDiagram, paddingPx: number): void {
+  for (const shape of diagram.genericShapes) {
+    addGenericShape(slide, pptx, diagram, paddingPx, shape);
+  }
 }
 
 function addClusters(slide: any, diagram: ParsedDiagram, paddingPx: number): void {
@@ -322,6 +330,138 @@ function addImageNode(
   }
 }
 
+function addGenericShape(
+  slide: any,
+  pptx: any,
+  diagram: ParsedDiagram,
+  paddingPx: number,
+  shape: ParsedGenericShape
+): void {
+  if (shape.kind === "line" && shape.points && shape.points.length >= 2) {
+    addGenericLineShape(slide, pptx, diagram, paddingPx, shape);
+    return;
+  }
+
+  if (shape.kind === "customGeometry" && shape.geometry) {
+    addGenericCustomGeometryShape(slide, pptx, diagram, paddingPx, shape);
+    return;
+  }
+
+  slide.addShape(getShapeType(pptx, shape), {
+    x: mapX(diagram, paddingPx, shape.x),
+    y: mapY(diagram, paddingPx, shape.y),
+    w: pxToIn(shape.width),
+    h: pxToIn(shape.height),
+    rectRadius: shape.kind === "roundRect" ? 0.14 : undefined,
+    fill: shape.style.fill
+      ? {
+          color: shape.style.fill.hex,
+          transparency: shape.style.fill.transparency,
+        }
+      : {
+          color: "FFFFFF",
+          transparency: 100,
+        },
+    line: shape.style.stroke
+      ? {
+          color: shape.style.stroke.hex,
+          transparency: shape.style.stroke.transparency,
+          width: pxToPt(shape.style.strokeWidthPx ?? 1),
+          dashType: dashTypeFromPattern(shape.style.dashPattern),
+        }
+      : undefined,
+  });
+}
+
+function addGenericLineShape(
+  slide: any,
+  pptx: any,
+  diagram: ParsedDiagram,
+  paddingPx: number,
+  shape: ParsedGenericShape
+): void {
+  const [from, to] = shape.points ?? [];
+  if (!from || !to) {
+    return;
+  }
+
+  const segment = buildLineSegment(
+    pptx,
+    from,
+    to,
+    {
+      id: shape.id,
+      points: [from, to],
+      style: {
+        ...shape.style,
+        fill: undefined,
+      },
+      startArrow: shape.startArrow,
+      endArrow: shape.endArrow,
+    },
+    diagram,
+    paddingPx,
+    true,
+    true
+  );
+
+  slide.addShape(segment.shapeType, {
+    x: segment.x,
+    y: segment.y,
+    w: segment.w,
+    h: segment.h,
+    line: {
+      color: segment.color,
+      transparency: segment.transparency,
+      width: segment.widthPt,
+      dashType: segment.dashType,
+      beginArrowType: segment.beginArrowType,
+      endArrowType: segment.endArrowType,
+    },
+  });
+}
+
+function addGenericCustomGeometryShape(
+  slide: any,
+  pptx: any,
+  diagram: ParsedDiagram,
+  paddingPx: number,
+  shape: ParsedGenericShape
+): void {
+  const geometry = shape.geometry;
+  if (!geometry) {
+    return;
+  }
+
+  const bounds = normalizeBounds(geometry.bounds);
+  slide.addShape(pptx.ShapeType.custGeom, {
+    x: mapX(diagram, paddingPx, bounds.x),
+    y: mapY(diagram, paddingPx, bounds.y),
+    w: pxToIn(bounds.width),
+    h: pxToIn(bounds.height),
+    points: geometry.commands.map((command) => toCustomGeometryPoint(command, bounds)),
+    fill: shape.closed && shape.style.fill
+      ? {
+          color: shape.style.fill.hex,
+          transparency: shape.style.fill.transparency,
+        }
+      : {
+          color: "FFFFFF",
+          transparency: 100,
+        },
+    line: shape.style.stroke
+      ? {
+          color: shape.style.stroke.hex,
+          transparency: shape.style.stroke.transparency,
+          width: pxToPt(shape.style.strokeWidthPx ?? 1),
+          dashType: dashTypeFromPattern(shape.style.dashPattern),
+          beginArrowType: shape.startArrow ? "triangle" : undefined,
+          endArrowType: shape.endArrow ? "triangle" : undefined,
+        }
+      : undefined,
+  });
+}
+
 function buildLineSegment(
   pptx: any,
   from: PointPx,
@@ -482,7 +622,7 @@ function isSamePoint(left: PointPx, right: PointPx): boolean {
   return Math.abs(left.x - right.x) < 0.001 && Math.abs(left.y - right.y) < 0.001;
 }
 
-function getShapeType(pptx: any, node: ParsedNode): string {
+function getShapeType(pptx: any, node: ParsedNode | ParsedGenericShape): string {
   switch (node.kind) {
     case "diamond":
       return pptx.ShapeType.diamond;

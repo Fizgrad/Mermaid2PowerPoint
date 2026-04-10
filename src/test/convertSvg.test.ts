@@ -71,3 +71,36 @@ test("convertSvgToPptx exports subgraph clusters and image nodes", async () => {
     assert.match(imageSlideXml, /<a:t>Brand<\/a:t>/);
   });
 });
+
+test("convertSvgToPptx exports sequence, mindmap, ER, and gantt diagrams as editable PPT content", async () => {
+  const sequenceSvg = await getFixtureSvg("sequence-basic");
+  const mindmapSvg = await getFixtureSvg("mindmap-basic");
+  const erSvg = await getFixtureSvg("er-basic");
+  const ganttSvg = await getFixtureSvg("gantt-basic");
+
+  await withTempDir(async (dir) => {
+    const sequenceOutput = join(dir, "sequence-basic.pptx");
+    const mindmapOutput = join(dir, "mindmap-basic.pptx");
+    const erOutput = join(dir, "er-basic.pptx");
+    const ganttOutput = join(dir, "gantt-basic.pptx");
+
+    await convertSvgToPptx(sequenceSvg, sequenceOutput);
+    await convertSvgToPptx(mindmapSvg, mindmapOutput);
+    await convertSvgToPptx(erSvg, erOutput);
+    await convertSvgToPptx(ganttSvg, ganttOutput);
+
+    const sequenceSlideXml = await readSlideXml(sequenceOutput);
+    const mindmapSlideXml = await readSlideXml(mindmapOutput);
+    const erSlideXml = await readSlideXml(erOutput);
+    const ganttSlideXml = await readSlideXml(ganttOutput);
+
+    assert.match(sequenceSlideXml, /<a:t>Hello Bob<\/a:t>/);
+    assert.match(sequenceSlideXml, /<a:srgbClr val="333333"/);
+    assert.match(mindmapSlideXml, /<a:t>Project<\/a:t>/);
+    assert.match(mindmapSlideXml, /<a:prstGeom prst="roundRect"/);
+    assert.match(erSlideXml, /<a:t>CUSTOMER<\/a:t>/);
+    assert.match(erSlideXml, /<a:t>places<\/a:t>/);
+    assert.match(ganttSlideXml, /<a:t>Launch Plan<\/a:t>/);
+    assert.match(ganttSlideXml, /<a:prstGeom prst="roundRect"/);
+  });
+});

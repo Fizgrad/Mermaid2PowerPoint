@@ -114,6 +114,27 @@ export function parseColor(raw) {
     };
   }
 
+  const hslMatch = value.match(
+    /^hsla?\(\s*(-?\d*\.?\d+)(?:deg)?\s*[, ]\s*(\d*\.?\d+)%\s*[, ]\s*(\d*\.?\d+)%(?:\s*[,/]\s*(\d*\.?\d+%?))?\s*\)$/
+  );
+  if (hslMatch) {
+    const [, hueRaw, saturationRaw, lightnessRaw, alphaRaw] = hslMatch;
+    const alpha = alphaRaw === undefined
+      ? 1
+      : alphaRaw.endsWith("%")
+        ? Number.parseFloat(alphaRaw) / 100
+        : Number.parseFloat(alphaRaw);
+
+    return {
+      hex: hslToHex(
+        Number.parseFloat(hueRaw),
+        Number.parseFloat(saturationRaw),
+        Number.parseFloat(lightnessRaw)
+      ),
+      transparency: clampTransparency((1 - Math.max(0, Math.min(alpha, 1))) * 100),
+    };
+  }
+
   if (value in COLOR_NAMES) {
     return { hex: COLOR_NAMES[value], transparency: 0 };
   }
@@ -278,4 +299,45 @@ export function safeGetBBox(element) {
   }
 
   return undefined;
+}
+
+function hslToHex(hue, saturation, lightness) {
+  const h = (((hue % 360) + 360) % 360) / 360;
+  const s = Math.max(0, Math.min(1, saturation / 100));
+  const l = Math.max(0, Math.min(1, lightness / 100));
+
+  if (s === 0) {
+    const channel = Math.round(l * 255)
+      .toString(16)
+      .padStart(2, "0")
+      .toUpperCase();
+    return `${channel}${channel}${channel}`;
+  }
+
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const channels = [h + 1 / 3, h, h - 1 / 3].map((offset) => hueToRgbChannel(p, q, offset));
+  return channels
+    .map((channel) => Math.round(channel * 255).toString(16).padStart(2, "0").toUpperCase())
+    .join("");
+}
+
+function hueToRgbChannel(p, q, t) {
+  let normalized = t;
+  if (normalized < 0) {
+    normalized += 1;
+  }
+  if (normalized > 1) {
+    normalized -= 1;
+  }
+  if (normalized < 1 / 6) {
+    return p + (q - p) * 6 * normalized;
+  }
+  if (normalized < 1 / 2) {
+    return q;
+  }
+  if (normalized < 2 / 3) {
+    return p + (q - p) * (2 / 3 - normalized) * 6;
+  }
+  return p;
 }

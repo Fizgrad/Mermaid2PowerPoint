@@ -1,8 +1,8 @@
 {
   "name": "mermaid2powerpoint",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Convert Mermaid flowcharts into fully editable PowerPoint shapes with live web preview",
+  "description": "Convert Mermaid diagrams into fully editable PowerPoint shapes with live web preview",
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",

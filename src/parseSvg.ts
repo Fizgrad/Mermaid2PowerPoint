@@ -8,10 +8,12 @@ import type {
   ParsedCluster,
   ParsedDiagram,
   ParsedEdge,
+  ParsedGenericShape,
   ParsedImageNode,
   ParsedNode,
   ParsedPathGeometry,
   ParsedText,
+  PointPx,
   ShapeStyle,
   TextStyle,
   ViewBox,
@@ -48,6 +50,8 @@ interface NodeShapeDescriptor {
   kind: ParsedNode["kind"];
   bounds: BoundingBox;
   styleElement: Element;
+  consumedElements: Element[];
+  style?: ShapeStyle;
 }
 
 export function parseRect(svgString: string): ParsedNode[] {
@@ -84,12 +88,14 @@ export function parseMermaidFlowchartSvg(svgString: string): ParsedDiagram {
 
   const viewBox = parseViewBox(svgRoot.attr("viewBox"), svgRoot.attr("width"), svgRoot.attr("height"));
   const background = parseSvgBackground(svgRoot.attr("style"));
-  const edgeLabelMap = buildEdgeLabelMap($, cssRules);
-  const clusters = parseClusters($, cssRules);
-  const nodes = parseNodes($, cssRules);
-  const imageNodes = parseImageNodes($, cssRules);
-  const edges = parseEdges($, cssRules, edgeLabelMap);
-  const floatingTexts = parseFloatingTexts($, cssRules);
+  const consumed = new Set<Element>();
+  const edgeLabelMap = buildEdgeLabelMap($, cssRules, consumed);
+  const clusters = parseClusters($, cssRules, consumed);
+  const nodes = parseNodes($, cssRules, consumed);
+  const imageNodes = parseImageNodes($, cssRules, consumed);
+  const edges = parseEdges($, cssRules, edgeLabelMap, consumed);
+  const genericShapes = parseGenericShapes($, cssRules, consumed);
+  const floatingTexts = parseFloatingTexts($, cssRules, consumed);
 
   return {
     viewBox,
@@ -97,12 +103,13 @@ export function parseMermaidFlowchartSvg(svgString: string): ParsedDiagram {
     clusters,
     nodes,
     imageNodes,
+    genericShapes,
     edges,
     floatingTexts,
   };
 }
 
-function parseClusters($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedCluster[] {
+function parseClusters($: ReturnType<typeof load>, cssRules: CssRule[], consumed: Set<Element>): ParsedCluster[] {
   const clusters: ParsedCluster[] = [];
 
   $(".clusters .cluster").each((_, element) => {
@@ -118,8 +125,9 @@ function parseClusters($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedC
 
     const labelElement = $(element).children(".cluster-label").first()[0];
     const label = labelElement && isElement(labelElement)
-      ? parseLabelText($, cssRules, labelElement, "free")
+      ? parseLabelText($, cssRules, labelElement, "free", consumed)
       : undefined;
+    consumed.add(rect);
 
     clusters.push({
       id: $(element).attr("id") ?? `cluster-${clusters.length + 1}`,
@@ -135,7 +143,7 @@ function parseClusters($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedC
   return clusters;
 }
 
-function parseNodes($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedNode[] {
+function parseNodes($: ReturnType<typeof load>, cssRules: CssRule[], consumed: Set<Element>): ParsedNode[] {
   const nodes: ParsedNode[] = [];
 
   $("g.node").each((_, element) => {
@@ -145,7 +153,10 @@ function parseNodes($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedNode
     }
 
     const id = $(element).attr("id") ?? `node-${nodes.length + 1}`;
-    const text = parseLabelText($, cssRules, element, "node");
+    const text = parseLabelText($, cssRules, element, "node", consumed);
+    for (const consumedElement of shape.consumedElements) {
+      consumed.add(consumedElement);
+    }
 
     nodes.push({
       id,
@@ -154,7 +165,7 @@ function parseNodes($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedNode
       y: shape.bounds.y,
       width: shape.bounds.width,
       height: shape.bounds.height,
-      style: resolveShapeStyle($, cssRules, shape.styleElement),
+      style: shape.style ?? resolveShapeStyle($, cssRules, shape.styleElement),
       text,
     });
   });
@@ -162,7 +173,7 @@ function parseNodes($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedNode
   return nodes;
 }
 
-function parseImageNodes($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedImageNode[] {
+function parseImageNodes($: ReturnType<typeof load>, cssRules: CssRule[], consumed: Set<Element>): ParsedImageNode[] {
   const imageNodes: ParsedImageNode[] = [];
 
   $(".image-shape").each((_, element) => {
@@ -183,8 +194,12 @@ function parseImageNodes($: ReturnType<typeof load>, cssRules: CssRule[]): Parse
 
     const labelElement = $(element).children(".label").first()[0];
     const label = labelElement && isElement(labelElement)
-      ? parseLabelText($, cssRules, labelElement, "node")
+      ? parseLabelText($, cssRules, labelElement, "node", consumed)
       : undefined;
+    consumed.add(imageElement);
+    for (const framePath of getImageFramePathElements($, element)) {
+      consumed.add(framePath);
+    }
     imageNodes.push({
       id: $(element).attr("id") ?? `image-node-${imageNodes.length + 1}`,
       x: bounds.x,
@@ -212,6 +227,18 @@ function parseNodeShape(
     .filter(isElement);
 
   for (const child of directChildren) {
+    if (child.tagName === "path" && hasRenderableShapeStyle($, cssRules, child)) {
+      const geometry = getAbsolutePathGeometry($, child);
+      if (geometry) {
+        return {
+          kind: classifyPathNodeKind(geometry),
+          bounds: geometry.bounds,
+          styleElement: child,
+          consumedElements: [child],
+        };
+      }
+    }
+
     if (!hasLabelContainerClass($, child)) {
       continue;
     }
@@ -223,6 +250,7 @@ function parseNodeShape(
           kind: "rect",
           bounds,
           styleElement: child,
+          consumedElements: [child],
         };
       }
     }
@@ -234,6 +262,7 @@ function parseNodeShape(
           kind: "ellipse",
           bounds,
           styleElement: child,
+          consumedElements: [child],
         };
       }
     }
@@ -246,13 +275,15 @@ function parseNodeShape(
           kind: classifyPolygonKind(points),
           bounds,
           styleElement: child,
+          consumedElements: [child],
         };
       }
     }
+
   }
 
   for (const child of directChildren) {
-    if (child.tagName !== "g" || !hasRoundedOuterPathClass($, child)) {
+    if (child.tagName !== "g" || !hasOuterPathGroupClass($, child)) {
       continue;
     }
 
@@ -267,11 +298,20 @@ function parseNodeShape(
     );
 
     if (bounds) {
-      const styleElement = pathChildren.find((pathChild) => hasRenderableShapeStyle($, cssRules, pathChild)) ?? child;
+      const styleElements = pathChildren.filter((pathChild) => hasRenderableShapeStyle($, cssRules, pathChild));
+      const styleElement = styleElements[0] ?? child;
+      const mergedStyle = mergeShapeStyles(styleElements.map((pathChild) => resolveShapeStyle($, cssRules, pathChild)));
+      const kind = classifyPathNodeKind(getAbsolutePathGeometry($, styleElement) ?? {
+        bounds,
+        commands: [],
+        hasCurves: false,
+      });
       return {
-        kind: "roundRect",
+        kind,
         bounds,
         styleElement,
+        consumedElements: pathChildren,
+        style: mergedStyle,
       };
     }
   }
@@ -282,7 +322,8 @@ function parseNodeShape(
 function parseEdges(
   $: ReturnType<typeof load>,
   cssRules: CssRule[],
-  edgeLabelMap: Map<string, ParsedText>
+  edgeLabelMap: Map<string, ParsedText>,
+  consumed: Set<Element>
 ): ParsedEdge[] {
   const edges: ParsedEdge[] = [];
 
@@ -295,6 +336,7 @@ function parseEdges(
     if (points.length < 2) {
       return;
     }
+    consumed.add(element);
 
     edges.push({
       id,
@@ -313,20 +355,46 @@ function parseEdges(
   return edges;
 }
 
-function parseFloatingTexts($: ReturnType<typeof load>, cssRules: CssRule[]): ParsedText[] {
+function parseFloatingTexts($: ReturnType<typeof load>, cssRules: CssRule[], consumed: Set<Element>): ParsedText[] {
   const floatingTexts: ParsedText[] = [];
+  const seen = new Set<string>();
 
   $("svg > text, .cluster-label text, .flowchartTitleText").each((_, element) => {
-    const text = parseTextElement($, cssRules, element, "free");
+    const text = parseTextElement($, cssRules, element, "free", consumed);
     if (text) {
-      floatingTexts.push(text);
+      pushUniqueText(floatingTexts, seen, text);
+    }
+  });
+
+  $("foreignObject, text").each((_, element) => {
+    if (!isElement(element)) {
+      return;
+    }
+
+    if (consumed.has(element) || hasConsumedAncestor(element, consumed)) {
+      return;
+    }
+
+    if (hasIgnoredGenericAncestor($, element)) {
+      return;
+    }
+
+    const parsed = element.tagName === "foreignObject"
+      ? parseForeignObjectText($, cssRules, element, "free", consumed)
+      : parseTextElement($, cssRules, element, "free", consumed);
+    if (parsed) {
+      pushUniqueText(floatingTexts, seen, parsed);
     }
   });
 
   return floatingTexts;
 }
 
-function buildEdgeLabelMap($: ReturnType<typeof load>, cssRules: CssRule[]): Map<string, ParsedText> {
+function buildEdgeLabelMap(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  consumed: Set<Element>
+): Map<string, ParsedText> {
   const labels = new Map<string, ParsedText>();
 
   $(".edgeLabels .label[data-id]").each((_, element) => {
@@ -335,7 +403,7 @@ function buildEdgeLabelMap($: ReturnType<typeof load>, cssRules: CssRule[]): Map
       return;
     }
 
-    const parsed = parseLabelText($, cssRules, element, "edge");
+    const parsed = parseLabelText($, cssRules, element, "edge", consumed);
     if (parsed && parsed.text) {
       labels.set(id, parsed);
     }
@@ -348,16 +416,17 @@ function parseLabelText(
   $: ReturnType<typeof load>,
   cssRules: CssRule[],
   container: Element,
-  role: ParsedText["role"]
+  role: ParsedText["role"],
+  consumed: Set<Element>
 ): ParsedText | undefined {
   const foreignObject = $(container).find("foreignObject").first()[0];
   if (foreignObject) {
-    return parseForeignObjectText($, cssRules, foreignObject, role);
+    return parseForeignObjectText($, cssRules, foreignObject, role, consumed);
   }
 
   const textElement = $(container).find("text").first()[0];
   if (textElement) {
-    return parseTextElement($, cssRules, textElement, role);
+    return parseTextElement($, cssRules, textElement, role, consumed);
   }
 
   return undefined;
@@ -367,12 +436,14 @@ function parseForeignObjectText(
   $: ReturnType<typeof load>,
   cssRules: CssRule[],
   element: Element,
-  role: ParsedText["role"]
+  role: ParsedText["role"],
+  consumed: Set<Element>
 ): ParsedText | undefined {
   const text = normalizeWhitespace($(element).text());
   if (!text) {
     return undefined;
   }
+  consumed.add(element);
 
   const x = parseNumber($(element).attr("x")) ?? 0;
   const y = parseNumber($(element).attr("y")) ?? 0;
@@ -400,12 +471,14 @@ function parseTextElement(
   $: ReturnType<typeof load>,
   cssRules: CssRule[],
   element: Element,
-  role: ParsedText["role"]
+  role: ParsedText["role"],
+  consumed: Set<Element>
 ): ParsedText | undefined {
   const text = normalizeWhitespace($(element).text());
   if (!text) {
     return undefined;
   }
+  consumed.add(element);
 
   const resolvedStyle = resolveStyle($, cssRules, element);
   const fontSizePx = parseNumber(resolvedStyle.fontSize) ?? 16;
@@ -438,12 +511,33 @@ function hasRoundedOuterPathClass($: ReturnType<typeof load>, element: Element):
   return classes.includes("label-container") && classes.includes("outer-path");
 }
 
+function hasOuterPathGroupClass($: ReturnType<typeof load>, element: Element): boolean {
+  const classes = ($(element).attr("class") ?? "").split(/\s+/).filter(Boolean);
+  return classes.includes("outer-path") || hasRoundedOuterPathClass($, element);
+}
+
 function classifyPolygonKind(points: { x: number; y: number }[]): ParsedNode["kind"] {
   if (points.length >= 6) {
     return "hexagon";
   }
 
   return "diamond";
+}
+
+function classifyPresetPolygonKind(points: { x: number; y: number }[]): ParsedNode["kind"] | undefined {
+  if (points.length >= 6) {
+    return "hexagon";
+  }
+
+  if (points.length === 4) {
+    return "diamond";
+  }
+
+  return undefined;
+}
+
+function classifyPathNodeKind(geometry: ParsedPathGeometry): ParsedNode["kind"] {
+  return geometry.hasCurves ? "roundRect" : "rect";
 }
 
 function getBoundingBoxFromRect($: ReturnType<typeof load>, element: Element): BoundingBox | undefined {
@@ -561,25 +655,293 @@ function resolveImageFrameStyle(
   cssRules: CssRule[],
   container: Element
 ): ShapeStyle | undefined {
-  const candidateStyles = $(container)
+  const candidateStyles = getImageFramePathElements($, container)
+    .map((pathElement) => resolveShapeStyle($, cssRules, pathElement));
+  return mergeShapeStyles(candidateStyles);
+}
+
+function getImageFramePathElements($: ReturnType<typeof load>, container: Element): Element[] {
+  return $(container)
     .find("path")
     .toArray()
     .filter(isElement)
     .filter((pathElement) => !$(pathElement).closest(".label").length);
-  const styles = candidateStyles
-    .map((pathElement) => resolveShapeStyle($, cssRules, pathElement))
-    .filter((style) => Boolean(style.fill || style.stroke));
+}
 
-  if (styles.length === 0) {
+function parseGenericShapes(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  consumed: Set<Element>
+): ParsedGenericShape[] {
+  const genericShapes: ParsedGenericShape[] = [];
+
+  $("rect, circle, ellipse, polygon, path, line, polyline").each((_, element) => {
+    if (!isElement(element)) {
+      return;
+    }
+
+    if (consumed.has(element) || hasConsumedAncestor(element, consumed) || hasIgnoredGenericAncestor($, element)) {
+      return;
+    }
+
+    const parsed = parseGenericShape($, cssRules, element, genericShapes.length + 1);
+    if (!parsed) {
+      return;
+    }
+
+    consumed.add(element);
+    genericShapes.push(parsed);
+  });
+
+  return genericShapes;
+}
+
+function parseGenericShape(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  element: Element,
+  index: number
+): ParsedGenericShape | undefined {
+  const tagName = element.tagName;
+  const style = resolveShapeStyle($, cssRules, element);
+  const id = $(element).attr("id") ?? `generic-shape-${index}`;
+
+  switch (tagName) {
+    case "rect": {
+      const bounds = getBoundingBoxFromRect($, element);
+      if (!bounds || !hasRenderableShapeStyle($, cssRules, element)) {
+        return undefined;
+      }
+
+      const rx = parseNumber($(element).attr("rx")) ?? 0;
+      const ry = parseNumber($(element).attr("ry")) ?? 0;
+      return {
+        id,
+        kind: rx > 0 || ry > 0 ? "roundRect" : "rect",
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        style,
+        closed: true,
+      };
+    }
+    case "circle":
+    case "ellipse": {
+      const bounds = getBoundingBoxFromEllipse($, element);
+      if (!bounds || !hasRenderableShapeStyle($, cssRules, element)) {
+        return undefined;
+      }
+
+      return {
+        id,
+        kind: "ellipse",
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        style,
+        closed: true,
+      };
+    }
+    case "line": {
+      const points = getAbsoluteLinePoints($, element);
+      if (!points || !style.stroke) {
+        return undefined;
+      }
+
+      return {
+        id,
+        kind: "line",
+        x: Math.min(points[0].x, points[1].x),
+        y: Math.min(points[0].y, points[1].y),
+        width: Math.abs(points[1].x - points[0].x),
+        height: Math.abs(points[1].y - points[0].y),
+        points,
+        style: {
+          ...style,
+          fill: undefined,
+        },
+        startArrow: $(element).attr("marker-start") ? "triangle" : undefined,
+        endArrow: $(element).attr("marker-end") ? "triangle" : undefined,
+        closed: false,
+      };
+    }
+    case "polyline":
+    case "polygon": {
+      const points = getAbsolutePoints($, element, parsePoints($(element).attr("points")));
+      if (points.length < 2 || !hasRenderableShapeStyle($, cssRules, element)) {
+        return undefined;
+      }
+
+      const bounds = getBoundingBoxFromPolygon($, element, parsePoints($(element).attr("points")));
+      if (!bounds) {
+        return undefined;
+      }
+
+      const isPolygon = tagName === "polygon";
+      if (isPolygon) {
+        const presetKind = classifyPresetPolygonKind(points);
+        if (presetKind) {
+          return {
+            id,
+            kind: presetKind,
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+            height: bounds.height,
+            style,
+            closed: true,
+          };
+        }
+      }
+
+      const geometry = pointsToGeometry(points, isPolygon);
+      return {
+        id,
+        kind: points.length === 2 && !isPolygon && style.stroke ? "line" : "customGeometry",
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        geometry: points.length === 2 && !isPolygon ? undefined : geometry,
+        points: points.length === 2 && !isPolygon ? points : undefined,
+        style: points.length === 2 && !isPolygon
+          ? {
+              ...style,
+              fill: undefined,
+            }
+          : style,
+        startArrow: $(element).attr("marker-start") ? "triangle" : undefined,
+        endArrow: $(element).attr("marker-end") ? "triangle" : undefined,
+        closed: isPolygon,
+      };
+    }
+    case "path": {
+      const geometry = getAbsolutePathGeometry($, element);
+      if (!geometry || !hasRenderableShapeStyle($, cssRules, element)) {
+        return undefined;
+      }
+
+      const closed = geometry.commands.some((command) => command.type === "close") || Boolean(style.fill);
+      const points = geometryToPoints(geometry);
+      if (!closed && points.length === 2 && !geometry.hasCurves && style.stroke) {
+        return {
+          id,
+          kind: "line",
+          x: Math.min(points[0].x, points[1].x),
+          y: Math.min(points[0].y, points[1].y),
+          width: Math.abs(points[1].x - points[0].x),
+          height: Math.abs(points[1].y - points[0].y),
+          points,
+          style: {
+            ...style,
+            fill: undefined,
+          },
+          startArrow: $(element).attr("marker-start") ? "triangle" : undefined,
+          endArrow: $(element).attr("marker-end") ? "triangle" : undefined,
+          closed: false,
+        };
+      }
+
+      return {
+        id,
+        kind: "customGeometry",
+        x: geometry.bounds.x,
+        y: geometry.bounds.y,
+        width: geometry.bounds.width,
+        height: geometry.bounds.height,
+        geometry,
+        style,
+        startArrow: $(element).attr("marker-start") ? "triangle" : undefined,
+        endArrow: $(element).attr("marker-end") ? "triangle" : undefined,
+        closed,
+      };
+    }
+    default:
+      return undefined;
+  }
+}
+
+function getAbsoluteLinePoints($: ReturnType<typeof load>, element: Element): PointPx[] | undefined {
+  const x1 = parseNumber($(element).attr("x1"));
+  const y1 = parseNumber($(element).attr("y1"));
+  const x2 = parseNumber($(element).attr("x2"));
+  const y2 = parseNumber($(element).attr("y2"));
+  if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) {
     return undefined;
   }
 
-  return styles.reduce<ShapeStyle>((merged, current) => ({
-    fill: merged.fill ?? current.fill,
-    stroke: merged.stroke ?? current.stroke,
-    strokeWidthPx: merged.strokeWidthPx ?? current.strokeWidthPx,
-    dashPattern: merged.dashPattern ?? current.dashPattern,
-  }), {});
+  const offset = getAbsoluteTranslate(element);
+  return [
+    { x: offset.x + x1, y: offset.y + y1 },
+    { x: offset.x + x2, y: offset.y + y2 },
+  ];
+}
+
+function getAbsolutePoints(
+  $: ReturnType<typeof load>,
+  element: Element,
+  points: PointPx[]
+): PointPx[] {
+  const offset = getAbsoluteTranslate(element);
+  return points.map((point) => ({
+    x: point.x + offset.x,
+    y: point.y + offset.y,
+  }));
+}
+
+function pointsToGeometry(points: PointPx[], closed: boolean): ParsedPathGeometry | undefined {
+  if (points.length < 2) {
+    return undefined;
+  }
+
+  const bounds = unionBoundingBoxes(points.map((point) => ({
+    x: point.x,
+    y: point.y,
+    width: 0,
+    height: 0,
+  })));
+  if (!bounds) {
+    return undefined;
+  }
+
+  return {
+    bounds,
+    commands: [
+      { type: "moveTo", x: points[0].x, y: points[0].y },
+      ...points.slice(1).map((point) => ({ type: "lineTo" as const, x: point.x, y: point.y })),
+      ...(closed ? [{ type: "close" as const }] : []),
+    ],
+    hasCurves: false,
+  };
+}
+
+function hasIgnoredGenericAncestor($: ReturnType<typeof load>, element: Element): boolean {
+  return $(element).closest("defs, marker, style, clipPath, mask, pattern, symbol, filter").length > 0;
+}
+
+function hasConsumedAncestor(element: Element, consumed: Set<Element>): boolean {
+  let current = element.parent;
+  while (current) {
+    if (isElement(current) && consumed.has(current)) {
+      return true;
+    }
+
+    current = current.parent;
+  }
+
+  return false;
+}
+
+function pushUniqueText(target: ParsedText[], seen: Set<string>, text: ParsedText): void {
+  const key = `${text.text}|${text.x.toFixed(2)}|${text.y.toFixed(2)}|${text.role}`;
+  if (seen.has(key)) {
+    return;
+  }
+
+  seen.add(key);
+  target.push(text);
 }
 
 function getAbsolutePathGeometry(
@@ -675,6 +1037,20 @@ function parseViewBox(
 function parseSvgBackground(styleAttr: string | undefined): ColorValue | undefined {
   const raw = parseInlineStyle(styleAttr).backgroundColor;
   return parseColor(raw);
+}
+
+function mergeShapeStyles(styles: ShapeStyle[]): ShapeStyle | undefined {
+  const renderableStyles = styles.filter((style) => Boolean(style.fill || style.stroke));
+  if (renderableStyles.length === 0) {
+    return undefined;
+  }
+
+  return renderableStyles.reduce<ShapeStyle>((merged, current) => ({
+    fill: merged.fill ?? current.fill,
+    stroke: merged.stroke ?? current.stroke,
+    strokeWidthPx: merged.strokeWidthPx ?? current.strokeWidthPx,
+    dashPattern: merged.dashPattern ?? current.dashPattern,
+  }), {});
 }
 
 function resolveShapeStyle(
@@ -798,19 +1174,6 @@ function resolveStyle(
 ): ResolvedStyle {
   const resolved: ResolvedStyle = {};
 
-  for (const rule of cssRules) {
-    for (const selector of rule.selectors) {
-      try {
-        if ($(element).is(selector)) {
-          Object.assign(resolved, rule.declarations);
-          break;
-        }
-      } catch {
-        continue;
-      }
-    }
-  }
-
   const attrMap: Array<[keyof ResolvedStyle, string | undefined]> = [
     ["backgroundColor", $(element).attr("background-color")],
     ["color", $(element).attr("color")],
@@ -830,9 +1193,50 @@ function resolveStyle(
     }
   }
 
+  for (const rule of cssRules) {
+    for (const selector of rule.selectors) {
+      try {
+        if (selectorMatchesElement($, element, selector)) {
+          Object.assign(resolved, rule.declarations);
+          break;
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+
   Object.assign(resolved, parseInlineStyle($(element).attr("style")));
 
   return resolved;
+}
+
+function selectorMatchesElement(
+  $: ReturnType<typeof load>,
+  element: Element,
+  selector: string
+): boolean {
+  const candidates = new Set<string>([selector.trim()]);
+  const strippedRootSelector = selector.replace(/^#[^\s>+~]+(?:\s*(?:>\s*)?)?/, "").trim();
+  if (strippedRootSelector) {
+    candidates.add(strippedRootSelector);
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    if ($(element).is(candidate)) {
+      return true;
+    }
+
+    if ($(candidate).toArray().some((matched) => matched === element)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function parseDeclarationBlock(raw: string): Record<string, string> {

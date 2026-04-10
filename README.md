@@ -1,22 +1,13 @@
 # Mermaid2PowerPoint
 
-将 Mermaid flowchart 转成真正可编辑的 PowerPoint 原生 Shape，而不是图片。
+将 Mermaid 图转换成可编辑的 PowerPoint `.pptx`。
 
-网页里直接写 Mermaid，实时语法检查和预览，然后在浏览器里直接下载可编辑的 `.pptx`。
+导出结果使用 PowerPoint 原生 shape、text 和 geometry，不是整张截图。  
+项目同时提供网页、CLI 和 Node API。
 
-## 项目亮点
+## 支持范围
 
-- 输出的是 PowerPoint 原生 shape、text 和 path，不是截图
-- 支持网页、CLI、Node API 三种使用方式
-- 支持实时 Mermaid 编辑、语法检查和 SVG 预览
-- GitHub Pages 上也能直接在浏览器里导出 PPT
-- 支持常见 Mermaid 节点形状、subgraph/cluster、图片节点
-- 支持带主题色的 edge label、彩色边框和曲线路径
-- 带回归测试、CI 和 GitHub Pages 发布
-
-## 当前支持
-
-- `flowchart` / `graph` 类 Mermaid 图
+- `flowchart` / `graph`、`sequenceDiagram`、`mindmap`、`erDiagram`、`gantt`
 - 矩形、圆角矩形、圆/椭圆、菱形、六边形节点
 - `subgraph` / `cluster` 容器和标题
 - Mermaid 图片节点 `@{ img: ... }`
@@ -25,17 +16,19 @@
 - `linkStyle` 线条颜色、粗细、虚线
 - edge label 背景框、彩色边框和主题色文本
 - 直线、折线和常见三次/二次曲线路径
+- mindmap / ER / gantt / sequence 的通用 SVG primitive 映射
 - 导出为原生 PowerPoint geometry，不嵌入图片
 
-当前实现走的是一条稳定路线：
+处理流程：
 
 1. 先把 Mermaid 渲染成 SVG，拿到 Mermaid 已经计算好的布局坐标。
 2. 解析 SVG 中的节点、文本、样式和边线路径。
 3. 用 `pptxgenjs` 在 PPT 里重建原生 shape、text 和曲线路径。
 
-## 当前限制
+## 限制
 
-- 重点支持 `flowchart`，不保证时序图、脑图、er 图、甘特图等都能正确映射
+- `flowchart` 仍然是语义化映射最完整的一类图
+- `sequenceDiagram`、`mindmap`、`erDiagram`、`gantt` 已支持，但部分结构仍通过通用 SVG primitive 重建，而不是更高层语义对象
 - 复杂图标节点、泳道、部分特殊 marker 和更多高级 shape 还没有完整覆盖
 - 对极少数 SVG `path` 指令仍会保守降级，目标是保持可编辑和结构正确
 - 不是逐像素复刻 SVG，重点是“PPT 可编辑”而不是“SVG 100% 像素级一致”
@@ -138,7 +131,7 @@ const buffer = await convertMermaidCodeToPptxBuffer("flowchart TD\nA-->B");
 
 ## 回归示例
 
-仓库里现在带了几组常见 Mermaid fixture：
+仓库里带了几组回归 fixture：
 
 - `examples/simple-flow.mmd`: 基础流程图
 - `examples/shape-regression.mmd`: 圆角矩形、圆、六边形
@@ -146,6 +139,10 @@ const buffer = await convertMermaidCodeToPptxBuffer("flowchart TD\nA-->B");
 - `examples/curved-basis.mmd`: basis 曲线边
 - `examples/cluster-regression.mmd`: subgraph / cluster
 - `examples/image-node.mmd`: 图片节点
+- `examples/sequence-basic.mmd`: 基础时序图
+- `examples/mindmap-basic.mmd`: 基础脑图
+- `examples/er-basic.mmd`: 基础 ER 图
+- `examples/gantt-basic.mmd`: 基础甘特图
 
 ## 测试
 
@@ -153,11 +150,12 @@ const buffer = await convertMermaidCodeToPptxBuffer("flowchart TD\nA-->B");
 npm test
 ```
 
-当前测试覆盖：
+测试覆盖：
 
 - Mermaid SVG 解析测试
 - 节点形状和样式回归测试
 - cluster / image node 回归测试
+- sequence / mindmap / ER / gantt 回归测试
 - 曲线路径和 edge label 回归测试
 - SVG -> PPTX 原生 geometry 导出测试
 - `.mmd -> .pptx` 端到端测试
@@ -185,10 +183,7 @@ Pages 会发布静态网页编辑器，并直接支持浏览器内导出 PPT。
 npm run pages:build
 ```
 
-## 验证结果
-
-当前版本已经本地验证：
-
+## 验证
 - `npm run check`
 - `npm test`
 - `npm run pages:build`
