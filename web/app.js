@@ -1,5 +1,12 @@
 import mermaid from "./vendor/mermaid/mermaid.esm.min.mjs";
 
+const DOWNLOAD_BUTTON_LABEL = "生成可编辑 PPT";
+const STATIC_PREVIEW_BUTTON_LABEL = "Pages 上仅预览";
+const READY_TO_EXPORT_MESSAGE = "语法已通过；当前图可以导出成真正可编辑的 PPT。";
+const WAIT_FOR_VALIDATION_MESSAGE = "先通过语法检查后才允许导出。";
+const OFFLINE_EXPORT_MESSAGE =
+  "GitHub Pages 是静态站点，没有导出后端。要导出可编辑 PPT，请本地运行 npm run dev。";
+
 const sampleDiagram = `flowchart TD
     A[Start] --> B{Check input}
     B -->|valid| C[Render Mermaid]
@@ -93,8 +100,7 @@ downloadButton.addEventListener("click", async () => {
   } catch (error) {
     helperText.textContent = error instanceof Error ? error.message : "导出失败。";
   } finally {
-    downloadButton.textContent = "生成可编辑 PPT";
-    downloadButton.disabled = !currentIsValid;
+    syncDownloadState();
   }
 });
 
@@ -112,7 +118,7 @@ async function validateAndRender() {
     syntaxStatus.className = "status-pill status-idle";
     previewFrame.innerHTML = `<div class="empty-state"><p>请输入 Mermaid 代码。</p></div>`;
     errorBox.hidden = true;
-    helperText.textContent = "先通过语法检查后才允许导出。";
+    helperText.textContent = WAIT_FOR_VALIDATION_MESSAGE;
     return;
   }
 
@@ -137,7 +143,7 @@ async function validateAndRender() {
     syncDownloadState();
     syntaxStatus.textContent = "语法通过";
     syntaxStatus.className = "status-pill status-ok";
-    helperText.textContent = "可以直接下载可编辑的 PPT。";
+    helperText.textContent = backendAvailable ? READY_TO_EXPORT_MESSAGE : OFFLINE_EXPORT_MESSAGE;
   } catch (error) {
     if (token !== latestRenderToken) {
       return;
@@ -176,13 +182,12 @@ async function checkBackendAvailability() {
     backendStatus.textContent = "导出服务在线";
     backendStatus.className = "status-pill status-ok";
     helperText.textContent = currentIsValid
-      ? "可以直接下载可编辑的 PPT。"
-      : "先通过语法检查后才允许导出。";
+      ? READY_TO_EXPORT_MESSAGE
+      : WAIT_FOR_VALIDATION_MESSAGE;
   } else {
     backendStatus.textContent = "仅静态预览模式";
     backendStatus.className = "status-pill status-offline";
-    helperText.textContent =
-      "当前页面没有连接导出后端。GitHub Pages 上可编辑和预览；要导出 PPT，请本地运行 npm run dev。";
+    helperText.textContent = OFFLINE_EXPORT_MESSAGE;
   }
 
   syncDownloadState();
@@ -190,6 +195,12 @@ async function checkBackendAvailability() {
 
 function syncDownloadState() {
   downloadButton.disabled = !(currentIsValid && backendAvailable);
+  downloadButton.textContent = backendAvailable
+    ? DOWNLOAD_BUTTON_LABEL
+    : STATIC_PREVIEW_BUTTON_LABEL;
+  downloadButton.title = backendAvailable
+    ? "将当前 Mermaid 导出成可编辑的 PowerPoint 文件。"
+    : OFFLINE_EXPORT_MESSAGE;
 }
 
 function resolveApiUrl(path) {
