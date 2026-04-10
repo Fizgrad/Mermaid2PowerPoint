@@ -22,15 +22,34 @@ test("convertSvgToPptx outputs editable PowerPoint shapes instead of embedded pi
 
 test("convertSvgToPptx maps extra Mermaid node shapes to native PowerPoint geometry", async () => {
   const svg = await getFixtureSvg("shape-regression");
+  const specialSvg = await getFixtureSvg("flowchart-special-shapes");
+  const presetSvg = await getFixtureSvg("flowchart-preset-nodes");
 
   await withTempDir(async (dir) => {
     const outputPath = join(dir, "shape-regression.pptx");
+    const specialOutputPath = join(dir, "flowchart-special-shapes.pptx");
+    const presetOutputPath = join(dir, "flowchart-preset-nodes.pptx");
     await convertSvgToPptx(svg, outputPath);
+    await convertSvgToPptx(specialSvg, specialOutputPath);
+    await convertSvgToPptx(presetSvg, presetOutputPath);
 
     const slideXml = await readSlideXml(outputPath);
+    const specialSlideXml = await readSlideXml(specialOutputPath);
+    const presetSlideXml = await readSlideXml(presetOutputPath);
     assert.match(slideXml, /<a:prstGeom prst="roundRect"/);
     assert.match(slideXml, /<a:prstGeom prst="ellipse"/);
     assert.match(slideXml, /<a:prstGeom prst="hexagon"/);
+    assert.match(specialSlideXml, /<a:prstGeom prst="flowChartInputOutput"/);
+    assert.match(specialSlideXml, /<a:prstGeom prst="flowChartPredefinedProcess"/);
+    assert.match(specialSlideXml, /<a:prstGeom prst="flowChartMagneticDisk"/);
+    assert.match(specialSlideXml, /<a:t>Database<\/a:t>/);
+    assert.match(specialSlideXml, /<a:t>Asymmetric<\/a:t>/);
+    assert.match(presetSlideXml, /<a:prstGeom prst="flowChartManualInput"/);
+    assert.match(presetSlideXml, /<a:prstGeom prst="flowChartDocument"/);
+    assert.match(presetSlideXml, /<a:prstGeom prst="flowChartDisplay"/);
+    assert.match(presetSlideXml, /<a:prstGeom prst="flowChartInternalStorage"/);
+    assert.match(presetSlideXml, /<a:prstGeom prst="flowChartManualOperation"/);
+    assert.match(specialSlideXml, /<a:custGeom>/);
   });
 });
 
@@ -103,6 +122,8 @@ test("convertSvgToPptx exports sequence, mindmap, ER, and gantt diagrams as edit
     const ganttSlideXml = await readSlideXml(ganttOutput);
 
     assert.match(sequenceSlideXml, /<a:t>Hello Bob<\/a:t>/);
+    assert.match(sequenceSlideXml, /<a:t>Alice<\/a:t>/);
+    assert.match(sequenceSlideXml, /<a:custGeom>/);
     assert.match(sequenceSlideXml, /<a:srgbClr val="333333"/);
     assert.match(stateSlideXml, /<a:t>Running<\/a:t>/);
     assert.match(stateSlideXml, /<a:t>Worker<\/a:t>/);
@@ -136,9 +157,8 @@ test("convertSvgToPptx keeps merged sequence notes and class relation marker typ
     assert.match(sequenceSlideXml, /<a:t>加载镜像类描述<\/a:t>/);
     assert.match(sequenceSlideXml, /<a:t>如果有Profile<\/a:t>/);
     assert.match(sequenceSlideXml, /<a:t>ProfileCompilationInfo的交集<\/a:t>/);
-    assert.match(classSlideXml, /type="diamond"/);
-    assert.match(classSlideXml, /type="oval"/);
-    assert.match(classSlideXml, /type="triangle"/);
+    assert.match(classSlideXml, /<a:custGeom>/);
+    assert.match(classSlideXml, /<a:prstGeom prst="ellipse"/);
     assert.match(classSlideXml, /type="stealth"/);
   });
 });

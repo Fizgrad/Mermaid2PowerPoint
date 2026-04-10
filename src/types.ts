@@ -97,12 +97,27 @@ export interface ParsedText {
 
 export interface ParsedNode {
   id: string;
-  kind: "rect" | "roundRect" | "ellipse" | "diamond" | "hexagon";
+  kind:
+    | "rect"
+    | "roundRect"
+    | "ellipse"
+    | "diamond"
+    | "hexagon"
+    | "flowChartDisplay"
+    | "flowChartDocument"
+    | "flowChartInputOutput"
+    | "flowChartInternalStorage"
+    | "flowChartPredefinedProcess"
+    | "flowChartMagneticDisk"
+    | "flowChartManualInput"
+    | "flowChartManualOperation"
+    | "customGeometry";
   x: number;
   y: number;
   width: number;
   height: number;
   style: ShapeStyle;
+  geometry?: ParsedPathGeometry;
   text?: ParsedText;
 }
 
@@ -132,7 +147,22 @@ export type LineArrowType = "arrow" | "diamond" | "oval" | "stealth" | "triangle
 
 export interface ParsedGenericShape {
   id: string;
-  kind: "rect" | "roundRect" | "ellipse" | "diamond" | "hexagon" | "line" | "customGeometry";
+  kind:
+    | "rect"
+    | "roundRect"
+    | "ellipse"
+    | "diamond"
+    | "hexagon"
+    | "flowChartDisplay"
+    | "flowChartDocument"
+    | "flowChartInputOutput"
+    | "flowChartInternalStorage"
+    | "flowChartPredefinedProcess"
+    | "flowChartMagneticDisk"
+    | "flowChartManualInput"
+    | "flowChartManualOperation"
+    | "line"
+    | "customGeometry";
   x: number;
   y: number;
   width: number;

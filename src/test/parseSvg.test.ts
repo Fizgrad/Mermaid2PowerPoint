@@ -41,6 +41,52 @@ test("parseMermaidFlowchartSvg detects rounded, circular, and hexagonal Mermaid 
   );
 });
 
+test("parseMermaidFlowchartSvg keeps complex flowchart shapes as editable custom geometry", async () => {
+  const svg = await getFixtureSvg("flowchart-special-shapes");
+  const diagram = parseMermaidFlowchartSvg(svg);
+
+  assert.equal(
+    diagram.nodes.some((node) => node.text?.text === "Input" && node.kind === "flowChartInputOutput"),
+    true
+  );
+  assert.equal(
+    diagram.nodes.some((node) => node.text?.text === "Subroutine" && node.kind === "flowChartPredefinedProcess"),
+    true
+  );
+  assert.equal(
+    diagram.nodes.some((node) => node.text?.text === "Database" && node.kind === "flowChartMagneticDisk"),
+    true
+  );
+  assert.equal(diagram.nodes.some((node) => node.text?.text === "Asymmetric" && node.kind === "customGeometry"), true);
+  assert.equal(diagram.nodes.some((node) => node.text?.text === "Hexagon" && node.kind === "hexagon"), true);
+});
+
+test("parseMermaidFlowchartSvg maps additional flowchart preset nodes to native PowerPoint-friendly kinds", async () => {
+  const svg = await getFixtureSvg("flowchart-preset-nodes");
+  const diagram = parseMermaidFlowchartSvg(svg);
+
+  assert.equal(
+    diagram.nodes.some((node) => node.text?.text === "Manual Input" && node.kind === "flowChartManualInput"),
+    true
+  );
+  assert.equal(
+    diagram.nodes.some((node) => node.text?.text === "Document" && node.kind === "flowChartDocument"),
+    true
+  );
+  assert.equal(
+    diagram.nodes.some((node) => node.text?.text === "Display" && node.kind === "flowChartDisplay"),
+    true
+  );
+  assert.equal(
+    diagram.nodes.some((node) => node.text?.text === "Internal Storage" && node.kind === "flowChartInternalStorage"),
+    true
+  );
+  assert.equal(
+    diagram.nodes.some((node) => node.text?.text === "Manual Operation" && node.kind === "flowChartManualOperation"),
+    true
+  );
+});
+
 test("parseMermaidFlowchartSvg preserves styled edge labels and classDef colors", async () => {
   const svg = await getFixtureSvg("styled-links");
   const diagram = parseMermaidFlowchartSvg(svg);
@@ -94,6 +140,14 @@ test("parseMermaidFlowchartSvg preserves Mermaid sequence diagrams as editable s
   const svg = await getFixtureSvg("sequence-basic");
   const diagram = parseMermaidFlowchartSvg(svg);
 
+  assert.equal(
+    diagram.nodes.some((node) => node.text?.text === "Alice" && node.kind === "customGeometry"),
+    true
+  );
+  assert.equal(
+    diagram.nodes.some((node) => node.text?.text === "Bob" && node.kind === "roundRect"),
+    true
+  );
   assert.equal(diagram.genericShapes.filter((shape) => shape.kind === "line").length >= 4, true);
   assert.equal(
     diagram.genericShapes.some((shape) => shape.kind === "line" && shape.style.stroke?.hex === "333333"),
@@ -185,12 +239,14 @@ test("parseMermaidFlowchartSvg maps class/object-style relationship markers to e
   const diagram = parseMermaidFlowchartSvg(svg);
   const byLabel = new Map(diagram.edges.map((edge) => [edge.label?.text, edge]));
 
-  assert.equal(byLabel.get("extends")?.startArrow, "triangle");
-  assert.equal(byLabel.get("composition")?.startArrow, "diamond");
-  assert.equal(byLabel.get("aggregation")?.startArrow, "diamond");
+  assert.equal(byLabel.get("extends")?.startArrow, undefined);
+  assert.equal(byLabel.get("composition")?.startArrow, undefined);
+  assert.equal(byLabel.get("aggregation")?.startArrow, undefined);
   assert.equal(byLabel.get("association")?.endArrow, "stealth");
   assert.equal(byLabel.get("dependency")?.endArrow, "stealth");
-  assert.equal(byLabel.get("lollipop")?.endArrow, "oval");
+  assert.equal(byLabel.get("lollipop")?.endArrow, undefined);
+  assert.equal(diagram.markerDecorations.some((shape) => shape.kind === "ellipse"), true);
+  assert.equal(diagram.markerDecorations.some((shape) => shape.kind === "customGeometry"), true);
 });
 
 test("parseMermaidFlowchartSvg parses Mermaid gantt charts into timeline bars and labels", async () => {

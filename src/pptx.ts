@@ -146,6 +146,14 @@ function addEdges(slide: any, pptx: any, diagram: ParsedDiagram, paddingPx: numb
 
 function addNodes(slide: any, pptx: any, diagram: ParsedDiagram, paddingPx: number): void {
   for (const node of diagram.nodes) {
+    if (node.kind === "customGeometry" && node.geometry) {
+      addCustomGeometryNode(slide, pptx, diagram, paddingPx, node);
+      if (node.text) {
+        addText(slide, diagram, paddingPx, node.text);
+      }
+      continue;
+    }
+
     slide.addShape(getShapeType(pptx, node), {
       x: mapX(diagram, paddingPx, node.x),
       y: mapY(diagram, paddingPx, node.y),
@@ -168,6 +176,45 @@ function addNodes(slide: any, pptx: any, diagram: ParsedDiagram, paddingPx: numb
       addText(slide, diagram, paddingPx, node.text);
     }
   }
+}
+
+function addCustomGeometryNode(
+  slide: any,
+  pptx: any,
+  diagram: ParsedDiagram,
+  paddingPx: number,
+  node: ParsedNode
+): void {
+  const geometry = node.geometry;
+  if (!geometry) {
+    return;
+  }
+
+  const bounds = normalizeBounds(geometry.bounds);
+  slide.addShape(pptx.ShapeType.custGeom, {
+    x: mapX(diagram, paddingPx, bounds.x),
+    y: mapY(diagram, paddingPx, bounds.y),
+    w: pxToIn(bounds.width),
+    h: pxToIn(bounds.height),
+    points: geometry.commands.map((command) => toCustomGeometryPoint(command, bounds)),
+    fill: node.style.fill
+      ? {
+          color: node.style.fill.hex,
+          transparency: node.style.fill.transparency,
+        }
+      : {
+          color: "FFFFFF",
+          transparency: 100,
+        },
+    line: node.style.stroke
+      ? {
+          color: node.style.stroke.hex,
+          transparency: node.style.stroke.transparency,
+          width: pxToPt(node.style.strokeWidthPx ?? 1),
+          dashType: dashTypeFromPattern(node.style.dashPattern),
+        }
+      : undefined,
+  });
 }
 
 function addFloatingTexts(slide: any, diagram: ParsedDiagram, paddingPx: number): void {
@@ -639,6 +686,22 @@ function getShapeType(pptx: any, node: ParsedNode | ParsedGenericShape): string 
       return pptx.ShapeType.ellipse;
     case "hexagon":
       return pptx.ShapeType.hexagon;
+    case "flowChartDisplay":
+      return pptx.ShapeType.flowChartDisplay;
+    case "flowChartDocument":
+      return pptx.ShapeType.flowChartDocument;
+    case "flowChartInputOutput":
+      return pptx.ShapeType.flowChartInputOutput;
+    case "flowChartInternalStorage":
+      return pptx.ShapeType.flowChartInternalStorage;
+    case "flowChartPredefinedProcess":
+      return pptx.ShapeType.flowChartPredefinedProcess;
+    case "flowChartMagneticDisk":
+      return pptx.ShapeType.flowChartMagneticDisk;
+    case "flowChartManualInput":
+      return pptx.ShapeType.flowChartManualInput;
+    case "flowChartManualOperation":
+      return pptx.ShapeType.flowChartManualOperation;
     case "rect":
     default:
       return pptx.ShapeType.rect;

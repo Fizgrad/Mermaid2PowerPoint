@@ -11,6 +11,8 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(currentDir, "../..");
 const sampleMermaidPath = join(repoRoot, "examples", "simple-flow.mmd");
 const shapeRegressionPath = join(repoRoot, "examples", "shape-regression.mmd");
+const flowchartSpecialShapesPath = join(repoRoot, "examples", "flowchart-special-shapes.mmd");
+const flowchartPresetNodesPath = join(repoRoot, "examples", "flowchart-preset-nodes.mmd");
 const styledLinksPath = join(repoRoot, "examples", "styled-links.mmd");
 const curvedBasisPath = join(repoRoot, "examples", "curved-basis.mmd");
 const clusterRegressionPath = join(repoRoot, "examples", "cluster-regression.mmd");
@@ -42,6 +44,8 @@ export function getFixtureMermaidPath(
   fixtureName:
     | "simple-flow"
     | "shape-regression"
+    | "flowchart-special-shapes"
+    | "flowchart-preset-nodes"
     | "styled-links"
     | "curved-basis"
     | "cluster-regression"
@@ -58,6 +62,10 @@ export function getFixtureMermaidPath(
   switch (fixtureName) {
     case "shape-regression":
       return shapeRegressionPath;
+    case "flowchart-special-shapes":
+      return flowchartSpecialShapesPath;
+    case "flowchart-preset-nodes":
+      return flowchartPresetNodesPath;
     case "styled-links":
       return styledLinksPath;
     case "curved-basis":
@@ -92,6 +100,8 @@ export function getFixtureSvg(
   fixtureName:
     | "simple-flow"
     | "shape-regression"
+    | "flowchart-special-shapes"
+    | "flowchart-preset-nodes"
     | "styled-links"
     | "curved-basis"
     | "cluster-regression"

@@ -8,17 +8,19 @@
 ## 支持范围
 
 - `flowchart` / `graph`、`sequenceDiagram`、`stateDiagram-v2`、`mindmap`、`erDiagram`、`gantt`、`classDiagram`
-- 矩形、圆角矩形、圆/椭圆、菱形、六边形节点
+- 常见流程图节点：矩形、圆角矩形、圆/椭圆、菱形、六边形、输入输出、子程序、数据库、手工输入、手工操作、文档、显示、内部存储
 - `subgraph` / `cluster` 容器和标题
 - Mermaid 图片节点 `@{ img: ... }`
 - `foreignObject`、普通 SVG `<text>`、`<tspan>` 多行文本
+- sequenceDiagram 的 `actor` / `participant` 参与者头部符号
 - `classDef` 节点填充色、边框色、字号和文本色
 - `linkStyle` 线条颜色、粗细、虚线
 - edge label 背景框、彩色边框和主题色文本
 - sequence note 的 `<br/>` 多行文本合并导出
+- sequence `actor` 火柴人符号会合并为单个可编辑 geometry
 - state note、多层 state cluster、起止状态节点
 - class / object 风格关系的三角、菱形、圆点等常见连接符号
-- ER cardinality marker 的条线、圆点和 crow-foot 装饰图形
+- ER cardinality、类图/对象图 marker 的条线、菱形、圆点和 crow-foot 装饰图形
 - 直线、折线和常见三次/二次曲线路径
 - mindmap / ER / gantt / sequence / state / class 的通用 SVG primitive 映射
 - 导出为原生 PowerPoint geometry，不嵌入图片
@@ -33,6 +35,7 @@
 
 - `flowchart` 仍然是语义化映射最完整的一类图
 - `sequenceDiagram`、`stateDiagram-v2`、`mindmap`、`erDiagram`、`gantt`、`classDiagram` 已支持，但部分结构仍通过通用 SVG primitive 重建，而不是更高层语义对象
+- 常见流程图节点已经尽量映射到 PowerPoint 原生预设形状，少数不规则轮廓仍保留为自定义 geometry
 - ER crow-foot 已导出为可编辑装饰图形，但和浏览器 SVG 仍不是逐像素完全一致
 - 复杂图标节点、泳道、部分特殊 marker 和更多高级 shape 还没有完整覆盖
 - 对极少数 SVG `path` 指令仍会保守降级，目标是保持可编辑和结构正确
@@ -140,6 +143,8 @@ const buffer = await convertMermaidCodeToPptxBuffer("flowchart TD\nA-->B");
 
 - `examples/simple-flow.mmd`: 基础流程图
 - `examples/shape-regression.mmd`: 圆角矩形、圆、六边形
+- `examples/flowchart-special-shapes.mmd`: 输入输出、子程序、数据库、不对称节点
+- `examples/flowchart-preset-nodes.mmd`: 手工输入、手工操作、文档、显示、内部存储
 - `examples/styled-links.mmd`: `classDef`、彩色边框和 edge label
 - `examples/curved-basis.mmd`: basis 曲线边
 - `examples/cluster-regression.mmd`: subgraph / cluster

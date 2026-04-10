@@ -26,6 +26,8 @@ test("convertMermaidFileToPptx renders Mermaid source and writes editable PPT ou
 test("convertMermaidFileToPptx supports richer Mermaid fixtures end to end", async () => {
   await withTempDir(async (dir) => {
     const shapesOutput = join(dir, "shape-regression.pptx");
+    const specialShapesOutput = join(dir, "flowchart-special-shapes.pptx");
+    const presetNodesOutput = join(dir, "flowchart-preset-nodes.pptx");
     const curvedOutput = join(dir, "curved-basis.pptx");
     const clusterOutput = join(dir, "cluster-regression.pptx");
     const imageOutput = join(dir, "image-node.pptx");
@@ -37,6 +39,12 @@ test("convertMermaidFileToPptx supports richer Mermaid fixtures end to end", asy
     const ganttOutput = join(dir, "gantt-basic.pptx");
 
     await convertMermaidFileToPptx(getFixtureMermaidPath("shape-regression"), shapesOutput, {
+      noSandbox: true,
+    });
+    await convertMermaidFileToPptx(getFixtureMermaidPath("flowchart-special-shapes"), specialShapesOutput, {
+      noSandbox: true,
+    });
+    await convertMermaidFileToPptx(getFixtureMermaidPath("flowchart-preset-nodes"), presetNodesOutput, {
       noSandbox: true,
     });
     await convertMermaidFileToPptx(getFixtureMermaidPath("curved-basis"), curvedOutput, {
@@ -68,6 +76,8 @@ test("convertMermaidFileToPptx supports richer Mermaid fixtures end to end", asy
     });
 
     const shapesSlideXml = await readSlideXml(shapesOutput);
+    const specialShapesSlideXml = await readSlideXml(specialShapesOutput);
+    const presetNodesSlideXml = await readSlideXml(presetNodesOutput);
     const curvedSlideXml = await readSlideXml(curvedOutput);
     const clusterSlideXml = await readSlideXml(clusterOutput);
     const imageSlideXml = await readSlideXml(imageOutput);
@@ -80,10 +90,23 @@ test("convertMermaidFileToPptx supports richer Mermaid fixtures end to end", asy
 
     assert.match(shapesSlideXml, /<a:prstGeom prst="roundRect"/);
     assert.match(shapesSlideXml, /<a:prstGeom prst="ellipse"/);
+    assert.match(specialShapesSlideXml, /<a:prstGeom prst="flowChartInputOutput"/);
+    assert.match(specialShapesSlideXml, /<a:prstGeom prst="flowChartPredefinedProcess"/);
+    assert.match(specialShapesSlideXml, /<a:prstGeom prst="flowChartMagneticDisk"/);
+    assert.match(specialShapesSlideXml, /<a:t>Input<\/a:t>/);
+    assert.match(specialShapesSlideXml, /<a:t>Database<\/a:t>/);
+    assert.match(presetNodesSlideXml, /<a:prstGeom prst="flowChartManualInput"/);
+    assert.match(presetNodesSlideXml, /<a:prstGeom prst="flowChartDocument"/);
+    assert.match(presetNodesSlideXml, /<a:prstGeom prst="flowChartDisplay"/);
+    assert.match(presetNodesSlideXml, /<a:prstGeom prst="flowChartInternalStorage"/);
+    assert.match(presetNodesSlideXml, /<a:prstGeom prst="flowChartManualOperation"/);
+    assert.match(specialShapesSlideXml, /<a:custGeom>/);
     assert.match(curvedSlideXml, /<a:custGeom>/);
     assert.match(clusterSlideXml, /<a:t>API Layer<\/a:t>/);
     assert.match(imageSlideXml, /<p:pic>/);
     assert.match(sequenceSlideXml, /<a:t>Hello Bob<\/a:t>/);
+    assert.match(sequenceSlideXml, /<a:t>Alice<\/a:t>/);
+    assert.match(sequenceSlideXml, /<a:custGeom>/);
     assert.match(stateSlideXml, /<a:t>Idle<\/a:t>/);
     assert.match(stateSlideXml, /<a:t>Worker<\/a:t>/);
     assert.match(mindmapSlideXml, /<a:t>Project<\/a:t>/);

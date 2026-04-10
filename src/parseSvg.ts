@@ -52,6 +52,7 @@ interface NodeShapeDescriptor {
   bounds: BoundingBox;
   styleElement: Element;
   consumedElements: Element[];
+  geometry?: ParsedPathGeometry;
   style?: ShapeStyle;
 }
 
@@ -92,7 +93,8 @@ export function parseMermaidFlowchartSvg(svgString: string): ParsedDiagram {
   const consumed = new Set<Element>();
   const edgeLabelMap = buildEdgeLabelMap($, cssRules, consumed);
   const clusters = parseClusters($, cssRules, consumed);
-  const nodes = parseNodes($, cssRules, consumed);
+  const sequenceParticipantNodes = parseSequenceParticipantNodes($, cssRules, consumed);
+  const nodes = [...sequenceParticipantNodes, ...parseNodes($, cssRules, consumed)];
   const imageNodes = parseImageNodes($, cssRules, consumed);
   const edges = parseEdges($, cssRules, edgeLabelMap, consumed);
   const markerDecorations = parseEdgeMarkerDecorations($, cssRules, edges);
@@ -188,11 +190,153 @@ function parseNodes($: ReturnType<typeof load>, cssRules: CssRule[], consumed: S
       width: shape.bounds.width,
       height: shape.bounds.height,
       style: shape.style ?? resolveShapeStyle($, cssRules, shape.styleElement),
+      geometry: shape.geometry,
       text,
     });
   });
 
   return nodes;
+}
+
+function parseSequenceParticipantNodes(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  consumed: Set<Element>
+): ParsedNode[] {
+  const nodes: ParsedNode[] = [];
+  const seen = new Set<string>();
+
+  $("g.actor-man").each((_, element) => {
+    if (!isElement(element) || consumed.has(element) || hasConsumedAncestor(element, consumed)) {
+      return;
+    }
+
+    const parsed = parseActorParticipantNode($, cssRules, element, consumed, nodes.length + 1);
+    if (!parsed || seen.has(parsed.id)) {
+      return;
+    }
+
+    consumed.add(element);
+    seen.add(parsed.id);
+    nodes.push(parsed);
+  });
+
+  $("g").each((_, element) => {
+    if (!isElement(element) || consumed.has(element) || hasConsumedAncestor(element, consumed)) {
+      return;
+    }
+
+    const parsed = parseSequenceParticipantBoxNode($, cssRules, element, consumed, nodes.length + 1);
+    if (!parsed || seen.has(parsed.id)) {
+      return;
+    }
+
+    consumed.add(element);
+    seen.add(parsed.id);
+    nodes.push(parsed);
+  });
+
+  return nodes;
+}
+
+function parseActorParticipantNode(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  element: Element,
+  consumed: Set<Element>,
+  index: number
+): ParsedNode | undefined {
+  const lines = $(element).children("line").toArray().filter(isElement);
+  const circle = $(element).children("circle").first()[0];
+  if (!circle || !isElement(circle) || lines.length === 0) {
+    return undefined;
+  }
+
+  const lineGeometries = lines
+    .map((line) => {
+      const points = getAbsoluteLinePoints($, line);
+      return points && points.length === 2 ? pointsToGeometry(points, false) : undefined;
+    })
+    .filter((geometry): geometry is ParsedPathGeometry => Boolean(geometry));
+  const circleBounds = getBoundingBoxFromEllipse($, circle);
+  if (!circleBounds) {
+    return undefined;
+  }
+
+  const geometry = mergePathGeometries([ellipseBoundsToGeometry(circleBounds), ...lineGeometries]);
+  const style = mergeShapeStyles([
+    resolveShapeStyle($, cssRules, circle),
+    ...lines.map((line) => resolveShapeStyle($, cssRules, line)),
+  ]);
+  const textElement = $(element).children("text").first()[0];
+  const text = textElement && isElement(textElement)
+    ? parseTextElement($, cssRules, textElement, "node", consumed)
+    : undefined;
+
+  const participantId = $(element).attr("data-id") ?? $(element).attr("name") ?? `actor-${index}`;
+  const position = ($(element).attr("class") ?? "").includes("actor-bottom") ? "bottom" : "top";
+
+  lines.forEach((line) => consumed.add(line));
+  consumed.add(circle);
+
+  return {
+    id: `sequence-actor-${participantId}-${position}`,
+    kind: "customGeometry",
+    x: geometry.bounds.x,
+    y: geometry.bounds.y,
+    width: geometry.bounds.width,
+    height: geometry.bounds.height,
+    style: style ?? resolveShapeStyle($, cssRules, circle),
+    geometry,
+    text,
+  };
+}
+
+function parseSequenceParticipantBoxNode(
+  $: ReturnType<typeof load>,
+  cssRules: CssRule[],
+  element: Element,
+  consumed: Set<Element>,
+  index: number
+): ParsedNode | undefined {
+  const rect = $(element)
+    .children("rect")
+    .toArray()
+    .filter(isElement)
+    .find((child) => hasActorParticipantRectClass($, child));
+  const textElement = $(element)
+    .children("text")
+    .toArray()
+    .filter(isElement)
+    .find((child) => hasActorParticipantTextClass($, child));
+
+  if (!rect || !textElement) {
+    return undefined;
+  }
+
+  const bounds = getBoundingBoxFromRect($, rect);
+  if (!bounds) {
+    return undefined;
+  }
+
+  const rx = parseNumber($(rect).attr("rx")) ?? 0;
+  const ry = parseNumber($(rect).attr("ry")) ?? 0;
+  const name = $(element).attr("data-id") ?? $(rect).attr("name") ?? ($(textElement).text().trim() || `participant-${index}`);
+  const rectClasses = ($(rect).attr("class") ?? "").split(/\s+/).filter(Boolean);
+  const position = rectClasses.includes("actor-bottom") ? "bottom" : "top";
+
+  consumed.add(rect);
+
+  return {
+    id: `sequence-participant-${name}-${position}`,
+    kind: rx > 0 || ry > 0 ? "roundRect" : "rect",
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    style: resolveShapeStyle($, cssRules, rect),
+    text: parseTextElement($, cssRules, textElement, "node", consumed),
+  };
 }
 
 function parseImageNodes($: ReturnType<typeof load>, cssRules: CssRule[], consumed: Set<Element>): ParsedImageNode[] {
@@ -249,13 +393,27 @@ function parseNodeShape(
     .filter(isElement);
 
   for (const child of directChildren) {
+    if ((child.tagName === "circle" || child.tagName === "ellipse") && hasRenderableShapeStyle($, cssRules, child)) {
+      const bounds = getBoundingBoxFromEllipse($, child);
+      if (bounds) {
+        return {
+          kind: "ellipse",
+          bounds,
+          styleElement: child,
+          consumedElements: [child],
+        };
+      }
+    }
+
     if (child.tagName === "path" && hasRenderableShapeStyle($, cssRules, child)) {
       const geometry = getAbsolutePathGeometry($, child);
       if (geometry) {
+        const kind = classifyPathLikeNodeKind($, child, geometry, [$(child).attr("d") ?? ""]);
         return {
-          kind: classifyPathNodeKind(geometry),
+          kind,
           bounds: geometry.bounds,
           styleElement: child,
+          geometry: kind === "customGeometry" ? geometry : undefined,
           consumedElements: [child],
         };
       }
@@ -279,26 +437,17 @@ function parseNodeShape(
       }
     }
 
-    if (child.tagName === "circle" || child.tagName === "ellipse") {
-      const bounds = getBoundingBoxFromEllipse($, child);
-      if (bounds) {
-        return {
-          kind: "ellipse",
-          bounds,
-          styleElement: child,
-          consumedElements: [child],
-        };
-      }
-    }
-
     if (child.tagName === "polygon") {
       const points = parsePoints($(child).attr("points"));
       const bounds = getBoundingBoxFromPolygon($, child, points);
       if (bounds) {
+        const presetKind = classifyPresetPolygonKind(points);
+        const geometry = presetKind ? undefined : pointsToGeometry(getAbsolutePoints($, child, points), true);
         return {
-          kind: classifyPolygonKind(points),
+          kind: presetKind ?? "customGeometry",
           bounds,
           styleElement: child,
+          geometry,
           consumedElements: [child],
         };
       }
@@ -325,16 +474,19 @@ function parseNodeShape(
       const styleElements = pathChildren.filter((pathChild) => hasRenderableShapeStyle($, cssRules, pathChild));
       const styleElement = styleElements[0] ?? child;
       const mergedStyle = mergeShapeStyles(styleElements.map((pathChild) => resolveShapeStyle($, cssRules, pathChild)));
-      const kind = classifyPathNodeKind(getAbsolutePathGeometry($, styleElement) ?? {
+      const rawPathData = styleElements.map((pathChild) => $(pathChild).attr("d") ?? "");
+      const geometry = getAbsolutePathGeometry($, styleElement) ?? {
         bounds,
         commands: [],
         hasCurves: false,
-      });
+      };
+      const kind = classifyPathLikeNodeKind($, child, geometry, rawPathData);
       return {
         kind,
         bounds,
         styleElement,
         consumedElements: pathChildren,
+        geometry: kind === "customGeometry" ? geometry : undefined,
         style: mergedStyle,
       };
     }
@@ -896,29 +1048,208 @@ function hasRoundedOuterPathClass($: ReturnType<typeof load>, element: Element):
   return classes.includes("label-container") && classes.includes("outer-path");
 }
 
+function hasActorParticipantRectClass($: ReturnType<typeof load>, element: Element): boolean {
+  const classes = ($(element).attr("class") ?? "").split(/\s+/).filter(Boolean);
+  return classes.includes("actor") && (classes.includes("actor-top") || classes.includes("actor-bottom"));
+}
+
+function hasActorParticipantTextClass($: ReturnType<typeof load>, element: Element): boolean {
+  const classes = ($(element).attr("class") ?? "").split(/\s+/).filter(Boolean);
+  return classes.includes("actor") || classes.includes("actor-box") || classes.includes("actor-man");
+}
+
 function hasOuterPathGroupClass($: ReturnType<typeof load>, element: Element): boolean {
   const classes = ($(element).attr("class") ?? "").split(/\s+/).filter(Boolean);
   return classes.includes("outer-path") || hasRoundedOuterPathClass($, element);
 }
 
 function classifyPolygonKind(points: { x: number; y: number }[]): ParsedNode["kind"] {
-  if (points.length >= 6) {
+  if (isHexagonPolygon(points)) {
     return "hexagon";
   }
 
-  return "diamond";
+  return isDiamondPolygon(points) ? "diamond" : "customGeometry";
 }
 
 function classifyPresetPolygonKind(points: { x: number; y: number }[]): ParsedNode["kind"] | undefined {
-  if (points.length >= 6) {
+  const quadrilateralKind = classifyPresetQuadrilateralKind(points);
+  if (quadrilateralKind) {
+    return quadrilateralKind;
+  }
+
+  if (isFlowChartPredefinedProcessPolygon(points)) {
+    return "flowChartPredefinedProcess";
+  }
+
+  if (isHexagonPolygon(points)) {
     return "hexagon";
   }
 
-  if (points.length === 4) {
+  if (points.length === 4 && isDiamondPolygon(points)) {
     return "diamond";
   }
 
   return undefined;
+}
+
+function classifyPresetQuadrilateralKind(points: { x: number; y: number }[]): ParsedNode["kind"] | undefined {
+  if (isFlowChartManualOperationPolygon(points)) {
+    return "flowChartManualOperation";
+  }
+
+  if (isFlowChartInputOutputPolygon(points)) {
+    return "flowChartInputOutput";
+  }
+
+  return undefined;
+}
+
+function isFlowChartInputOutputPolygon(points: { x: number; y: number }[]): boolean {
+  const corners = getQuadrilateralCorners(points);
+  if (!corners || isDiamondPolygon(points)) {
+    return false;
+  }
+
+  const leftTilt = corners.topLeft.x - corners.bottomLeft.x;
+  const rightTilt = corners.topRight.x - corners.bottomRight.x;
+  const topWidth = corners.topRight.x - corners.topLeft.x;
+  const bottomWidth = corners.bottomRight.x - corners.bottomLeft.x;
+
+  return (
+    leftTilt * rightTilt > 0 &&
+    Math.abs(Math.abs(leftTilt) - Math.abs(rightTilt)) <= 2.5 &&
+    Math.abs(topWidth - bottomWidth) <= Math.max(6, Math.max(topWidth, bottomWidth) * 0.2)
+  );
+}
+
+function isFlowChartManualOperationPolygon(points: { x: number; y: number }[]): boolean {
+  const corners = getQuadrilateralCorners(points);
+  if (!corners || isDiamondPolygon(points)) {
+    return false;
+  }
+
+  const leftTilt = corners.topLeft.x - corners.bottomLeft.x;
+  const rightTilt = corners.topRight.x - corners.bottomRight.x;
+  const topWidth = corners.topRight.x - corners.topLeft.x;
+  const bottomWidth = corners.bottomRight.x - corners.bottomLeft.x;
+
+  return leftTilt * rightTilt < 0 && Math.abs(topWidth - bottomWidth) >= 6;
+}
+
+function getQuadrilateralCorners(points: { x: number; y: number }[]): {
+  topLeft: PointPx;
+  topRight: PointPx;
+  bottomLeft: PointPx;
+  bottomRight: PointPx;
+} | undefined {
+  if (points.length !== 4) {
+    return undefined;
+  }
+
+  const ys = points.map((point) => point.y);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const topPoints = points
+    .filter((point) => nearlyEquals(point.y, minY))
+    .sort((left, right) => left.x - right.x);
+  const bottomPoints = points
+    .filter((point) => nearlyEquals(point.y, maxY))
+    .sort((left, right) => left.x - right.x);
+
+  if (topPoints.length !== 2 || bottomPoints.length !== 2) {
+    return undefined;
+  }
+
+  return {
+    topLeft: topPoints[0],
+    topRight: topPoints[1],
+    bottomLeft: bottomPoints[0],
+    bottomRight: bottomPoints[1],
+  };
+}
+
+function isFlowChartPredefinedProcessPolygon(points: { x: number; y: number }[]): boolean {
+  if (points.length < 8) {
+    return false;
+  }
+
+  const distinctXs = countDistinctValues(points.map((point) => point.x));
+  const distinctYs = countDistinctValues(points.map((point) => point.y));
+
+  return distinctXs === 4 && distinctYs === 2;
+}
+
+function isHexagonPolygon(points: { x: number; y: number }[]): boolean {
+  if (points.length !== 6) {
+    return false;
+  }
+
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+
+  const topCount = points.filter((point) => nearlyEquals(point.y, minY)).length;
+  const bottomCount = points.filter((point) => nearlyEquals(point.y, maxY)).length;
+  const leftCount = points.filter((point) => nearlyEquals(point.x, minX)).length;
+  const rightCount = points.filter((point) => nearlyEquals(point.x, maxX)).length;
+
+  return topCount === 2 && bottomCount === 2 && leftCount === 1 && rightCount === 1;
+}
+
+function isDiamondPolygon(points: { x: number; y: number }[]): boolean {
+  if (points.length !== 4) {
+    return false;
+  }
+
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+
+  const topCount = points.filter((point) => nearlyEquals(point.y, minY)).length;
+  const bottomCount = points.filter((point) => nearlyEquals(point.y, maxY)).length;
+  const leftCount = points.filter((point) => nearlyEquals(point.x, minX)).length;
+  const rightCount = points.filter((point) => nearlyEquals(point.x, maxX)).length;
+
+  return topCount === 1 && bottomCount === 1 && leftCount === 1 && rightCount === 1;
+}
+
+function classifyPathLikeNodeKind(
+  $: ReturnType<typeof load>,
+  element: Element,
+  geometry: ParsedPathGeometry,
+  rawPathData: string[]
+): ParsedNode["kind"] {
+  if (isFlowChartMagneticDiskPath(rawPathData)) {
+    return "flowChartMagneticDisk";
+  }
+
+  if (isFlowChartInternalStoragePath(geometry, rawPathData)) {
+    return "flowChartInternalStorage";
+  }
+
+  if (isFlowChartManualInputPath(geometry)) {
+    return "flowChartManualInput";
+  }
+
+  if (isFlowChartDocumentPath(geometry)) {
+    return "flowChartDocument";
+  }
+
+  if (isFlowChartDisplayPath(geometry)) {
+    return "flowChartDisplay";
+  }
+
+  if (isRoundedOuterPathNode($, element, geometry, rawPathData)) {
+    return "roundRect";
+  }
+
+  return classifyPathNodeKind(geometry);
 }
 
 function classifyPathNodeKind(geometry: ParsedPathGeometry): ParsedNode["kind"] {
@@ -926,7 +1257,174 @@ function classifyPathNodeKind(geometry: ParsedPathGeometry): ParsedNode["kind"] 
     return "ellipse";
   }
 
-  return geometry.hasCurves ? "roundRect" : "rect";
+  if (isLikelyRectGeometry(geometry)) {
+    return geometry.hasCurves ? "roundRect" : "rect";
+  }
+
+  return "customGeometry";
+}
+
+function isFlowChartMagneticDiskPath(rawPathData: string[]): boolean {
+  if (rawPathData.length === 0) {
+    return false;
+  }
+
+  return rawPathData.some((pathData) => /[aA]/.test(pathData));
+}
+
+function isRoundedOuterPathNode(
+  $: ReturnType<typeof load>,
+  element: Element,
+  geometry: ParsedPathGeometry,
+  rawPathData: string[]
+): boolean {
+  const classes = ($(element).attr("class") ?? "").split(/\s+/).filter(Boolean);
+  const hasOuterPath = classes.includes("outer-path");
+  if (!hasOuterPath) {
+    return false;
+  }
+
+  if (rawPathData.some((pathData) => /[aA]/.test(pathData))) {
+    return false;
+  }
+
+  const cubicCommandCount = rawPathData.reduce((count, pathData) => {
+    const matches = pathData.match(/[cC]/g);
+    return count + (matches?.length ?? 0);
+  }, 0);
+
+  return geometry.bounds.width > geometry.bounds.height && geometry.commands.length >= 20 && cubicCommandCount >= 20;
+}
+
+function isFlowChartInternalStoragePath(geometry: ParsedPathGeometry, rawPathData: string[]): boolean {
+  if (!isLikelyRectGeometry(geometry) || geometry.hasCurves || rawPathData.length < 2) {
+    return false;
+  }
+
+  const localBounds = unionBoundingBoxes(
+    rawPathData
+      .map((pathData) => parseSvgPathData(pathData)?.bounds)
+      .filter((bounds): bounds is BoundingBox => Boolean(bounds))
+  );
+  if (!localBounds) {
+    return false;
+  }
+
+  return rawPathData.some((pathData) => hasInteriorPathEndpoint(pathData, localBounds));
+}
+
+function hasInteriorPathEndpoint(pathData: string, bounds: BoundingBox): boolean {
+  const commands = parseSvgPathData(pathData)?.commands ?? [];
+  const inset = Math.max(1.5, Math.min(bounds.width, bounds.height) * 0.06);
+
+  return commands.some((command) => {
+    if (command.type === "close") {
+      return false;
+    }
+
+    const insideX = command.x > bounds.x + inset && command.x < bounds.x + bounds.width - inset;
+    const insideY = command.y > bounds.y + inset && command.y < bounds.y + bounds.height - inset;
+    const withinX = command.x >= bounds.x - inset && command.x <= bounds.x + bounds.width + inset;
+    const withinY = command.y >= bounds.y - inset && command.y <= bounds.y + bounds.height + inset;
+
+    return (insideX && withinY) || (insideY && withinX);
+  });
+}
+
+function isFlowChartManualInputPath(geometry: ParsedPathGeometry): boolean {
+  const endpoints = getGeometryEndpoints(geometry);
+  if (endpoints.length !== 5) {
+    return false;
+  }
+
+  const minX = geometry.bounds.x;
+  const maxX = geometry.bounds.x + geometry.bounds.width;
+  const minY = geometry.bounds.y;
+  const maxY = geometry.bounds.y + geometry.bounds.height;
+  const xTolerance = Math.max(2, geometry.bounds.width * 0.08);
+  const yTolerance = Math.max(2, geometry.bounds.height * 0.08);
+
+  return (
+    isNear(endpoints[1].x, minX, xTolerance) &&
+    isNear(endpoints[1].y, maxY, yTolerance) &&
+    isNear(endpoints[2].x, maxX, xTolerance) &&
+    isNear(endpoints[2].y, maxY, yTolerance) &&
+    isNear(endpoints[3].x, maxX, xTolerance) &&
+    isNear(endpoints[3].y, minY, yTolerance) &&
+    isNear(endpoints[4].x, minX, xTolerance) &&
+    endpoints[4].y > minY + geometry.bounds.height * 0.2 &&
+    endpoints[4].y < maxY - geometry.bounds.height * 0.15
+  );
+}
+
+function isFlowChartDocumentPath(geometry: ParsedPathGeometry): boolean {
+  const endpoints = getGeometryEndpoints(geometry);
+  if (endpoints.length < 20) {
+    return false;
+  }
+
+  const minX = geometry.bounds.x;
+  const maxX = geometry.bounds.x + geometry.bounds.width;
+  const minY = geometry.bounds.y;
+  const maxY = geometry.bounds.y + geometry.bounds.height;
+  const xTolerance = Math.max(2, geometry.bounds.width * 0.08);
+  const yTolerance = Math.max(2, geometry.bounds.height * 0.12);
+  const bottomBandY = minY + geometry.bounds.height * 0.78;
+  const firstRun = endpoints.slice(0, Math.min(14, endpoints.length));
+  const bottomRunCount = firstRun.filter((point) => point.y >= bottomBandY).length;
+
+  return (
+    bottomRunCount >= 10 &&
+    endpoints.some((point) => isNear(point.x, minX, xTolerance) && isNear(point.y, minY, yTolerance)) &&
+    endpoints.some((point) => isNear(point.x, maxX, xTolerance) && isNear(point.y, minY, yTolerance))
+  );
+}
+
+function isFlowChartDisplayPath(geometry: ParsedPathGeometry): boolean {
+  const endpoints = getGeometryEndpoints(geometry);
+  if (endpoints.length < 20) {
+    return false;
+  }
+
+  const minX = geometry.bounds.x;
+  const maxX = geometry.bounds.x + geometry.bounds.width;
+  const minY = geometry.bounds.y;
+  const maxY = geometry.bounds.y + geometry.bounds.height;
+  const midY = minY + geometry.bounds.height / 2;
+  const xTolerance = Math.max(2, geometry.bounds.width * 0.08);
+  const yTolerance = Math.max(2, geometry.bounds.height * 0.12);
+  const [start, second, third, fourth, fifth] = endpoints;
+
+  if (!start || !second || !third || !fourth || !fifth) {
+    return false;
+  }
+
+  return (
+    start.x >= minX + geometry.bounds.width * 0.6 &&
+    isNear(start.y, minY, yTolerance) &&
+    second.x <= minX + geometry.bounds.width * 0.25 &&
+    isNear(second.y, minY, yTolerance) &&
+    isNear(third.x, minX, xTolerance) &&
+    isNear(third.y, midY, geometry.bounds.height * 0.12) &&
+    fourth.x <= minX + geometry.bounds.width * 0.25 &&
+    isNear(fourth.y, maxY, yTolerance) &&
+    fifth.x >= minX + geometry.bounds.width * 0.6 &&
+    isNear(fifth.y, maxY, yTolerance)
+  );
+}
+
+function getGeometryEndpoints(geometry: ParsedPathGeometry): PointPx[] {
+  return geometry.commands.flatMap((command) => {
+    if (command.type === "close") {
+      return [];
+    }
+
+    return [{ x: command.x, y: command.y }];
+  });
+}
+
+function isNear(value: number, target: number, tolerance: number): boolean {
+  return Math.abs(value - target) <= tolerance;
 }
 
 function isLikelyEllipseGeometry(geometry: ParsedPathGeometry): boolean {
@@ -939,6 +1437,74 @@ function isLikelyEllipseGeometry(geometry: ParsedPathGeometry): boolean {
   );
 
   return onlyCurves && ratio >= 0.75 && ratio <= 1.33;
+}
+
+function isLikelyRectGeometry(geometry: ParsedPathGeometry): boolean {
+  const points = geometryToPoints(geometry);
+  if (points.length < 4) {
+    return false;
+  }
+
+  return points.every((point) =>
+    nearlyEquals(point.x, geometry.bounds.x) ||
+    nearlyEquals(point.x, geometry.bounds.x + geometry.bounds.width) ||
+    nearlyEquals(point.y, geometry.bounds.y) ||
+    nearlyEquals(point.y, geometry.bounds.y + geometry.bounds.height)
+  );
+}
+
+function nearlyEquals(left: number, right: number): boolean {
+  return Math.abs(left - right) < 0.75;
+}
+
+function countDistinctValues(values: number[]): number {
+  const distinct: number[] = [];
+
+  for (const value of values) {
+    if (!distinct.some((candidate) => nearlyEquals(candidate, value))) {
+      distinct.push(value);
+    }
+  }
+
+  return distinct.length;
+}
+
+function mergePathGeometries(geometries: ParsedPathGeometry[]): ParsedPathGeometry {
+  const bounds = unionBoundingBoxes(geometries.map((geometry) => geometry.bounds)) ?? {
+    x: 0,
+    y: 0,
+    width: 0.5,
+    height: 0.5,
+  };
+
+  return {
+    bounds,
+    commands: geometries.flatMap((geometry) => geometry.commands),
+    hasCurves: geometries.some((geometry) => geometry.hasCurves),
+  };
+}
+
+function ellipseBoundsToGeometry(bounds: BoundingBox): ParsedPathGeometry {
+  const rx = bounds.width / 2;
+  const ry = bounds.height / 2;
+  const cx = bounds.x + rx;
+  const cy = bounds.y + ry;
+  const kappa = 0.5522847498307936;
+  const ox = rx * kappa;
+  const oy = ry * kappa;
+
+  return {
+    bounds,
+    hasCurves: true,
+    commands: [
+      { type: "moveTo", x: cx + rx, y: cy },
+      { type: "cubicTo", x1: cx + rx, y1: cy + oy, x2: cx + ox, y2: cy + ry, x: cx, y: cy + ry },
+      { type: "cubicTo", x1: cx - ox, y1: cy + ry, x2: cx - rx, y2: cy + oy, x: cx - rx, y: cy },
+      { type: "cubicTo", x1: cx - rx, y1: cy - oy, x2: cx - ox, y2: cy - ry, x: cx, y: cy - ry },
+      { type: "cubicTo", x1: cx + ox, y1: cy - ry, x2: cx + rx, y2: cy - oy, x: cx + rx, y: cy },
+      { type: "close" },
+    ],
+  };
 }
 
 function getBoundingBoxFromRect($: ReturnType<typeof load>, element: Element): BoundingBox | undefined {
@@ -1393,7 +1959,14 @@ function parseMarkerArrowType(markerReference: string | undefined): LineArrowTyp
 }
 
 function isDecoratedMarker(markerId: string): boolean {
-  return markerId.includes("_er-") || markerId.includes("er-");
+  return (
+    markerId.includes("_er-") ||
+    markerId.includes("er-") ||
+    markerId.includes("composition") ||
+    markerId.includes("aggregation") ||
+    markerId.includes("lollipop") ||
+    markerId.includes("extension")
+  );
 }
 
 function extractMarkerId(markerReference: string | undefined): string | undefined {
