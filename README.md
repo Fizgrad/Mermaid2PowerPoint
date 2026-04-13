@@ -13,6 +13,7 @@
 - Mermaid 图片节点 `@{ img: ... }`
 - `foreignObject`、普通 SVG `<text>`、`<tspan>` 多行文本
 - sequenceDiagram 的 `actor` / `participant` 参与者头部符号
+- sequenceDiagram 的正向 / 反向消息箭头方向
 - `classDef` 节点填充色、边框色、字号和文本色
 - `linkStyle` 线条颜色、粗细、虚线
 - edge label 背景框、彩色边框和主题色文本
@@ -150,6 +151,7 @@ const buffer = await convertMermaidCodeToPptxBuffer("flowchart TD\nA-->B");
 - `examples/cluster-regression.mmd`: subgraph / cluster
 - `examples/image-node.mmd`: 图片节点
 - `examples/sequence-basic.mmd`: 基础时序图
+- `examples/sequence-direction-arrows.mmd`: 时序图正向 / 反向箭头
 - `examples/sequence-note-breaks.mmd`: 时序图 note 多行文本
 - `examples/state-basic.mmd`: 基础状态图
 - `examples/mindmap-basic.mmd`: 基础脑图

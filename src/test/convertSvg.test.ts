@@ -5,6 +5,10 @@ import { join } from "node:path";
 import { convertSvgToPptx } from "../index.js";
 import { getFixtureSvg, getSampleSvg, readSlideXml, withTempDir } from "./helpers.js";
 
+function countXmlMatches(xml: string, pattern: RegExp): number {
+  return [...xml.matchAll(pattern)].length;
+}
+
 test("convertSvgToPptx outputs editable PowerPoint shapes instead of embedded pictures", async () => {
   const svg = await getSampleSvg();
 
@@ -137,6 +141,61 @@ test("convertSvgToPptx exports sequence, mindmap, ER, and gantt diagrams as edit
     assert.match(erCardinalitySlideXml, /<a:custGeom>/);
     assert.match(ganttSlideXml, /<a:t>Launch Plan<\/a:t>/);
     assert.match(ganttSlideXml, /<a:prstGeom prst="roundRect"/);
+  });
+});
+
+test("convertSvgToPptx preserves right-to-left sequence arrow direction", async () => {
+  const sequenceSvg = await getFixtureSvg("sequence-direction-arrows");
+
+  await withTempDir(async (dir) => {
+    const sequenceOutput = join(dir, "sequence-direction-arrows.pptx");
+    await convertSvgToPptx(sequenceSvg, sequenceOutput);
+
+    const sequenceSlideXml = await readSlideXml(sequenceOutput);
+    assert.match(sequenceSlideXml, /<a:tailEnd type="arrow"/);
+    assert.match(sequenceSlideXml, /<a:headEnd type="arrow"/);
+  });
+});
+
+test("convertSvgToPptx keeps marker arrows on the visual endpoint for all line directions", async () => {
+  const svg = `
+    <svg viewBox="0 0 240 130" xmlns="http://www.w3.org/2000/svg">
+      <line x1="10" y1="10" x2="60" y2="10" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+      <line x1="60" y1="20" x2="10" y2="20" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+      <line x1="80" y1="10" x2="80" y2="60" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+      <line x1="90" y1="60" x2="90" y2="10" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+      <line x1="110" y1="10" x2="150" y2="50" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+      <line x1="150" y1="60" x2="110" y2="20" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+      <line x1="170" y1="60" x2="210" y2="20" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+      <line x1="210" y1="70" x2="170" y2="110" stroke="#333333" stroke-width="2" marker-end="url(#arrow)"/>
+      <line x1="10" y1="90" x2="60" y2="90" stroke="#333333" stroke-width="2" marker-start="url(#arrow)"/>
+      <line x1="60" y1="100" x2="10" y2="100" stroke="#333333" stroke-width="2" marker-start="url(#arrow)"/>
+    </svg>`;
+
+  await withTempDir(async (dir) => {
+    const outputPath = join(dir, "line-directions.pptx");
+    await convertSvgToPptx(svg, outputPath);
+
+    const slideXml = await readSlideXml(outputPath);
+    assert.equal(countXmlMatches(slideXml, /<a:headEnd type="arrow"/g), 5);
+    assert.equal(countXmlMatches(slideXml, /<a:tailEnd type="arrow"/g), 5);
+  });
+});
+
+test("convertSvgToPptx keeps curved path marker-end arrows on the custom geometry path end", async () => {
+  const svg = `
+    <svg viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20 20 C60 5 140 5 180 20" stroke="#333333" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+      <path d="M180 50 C140 65 60 65 20 50" stroke="#333333" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+    </svg>`;
+
+  await withTempDir(async (dir) => {
+    const outputPath = join(dir, "curved-directions.pptx");
+    await convertSvgToPptx(svg, outputPath);
+
+    const slideXml = await readSlideXml(outputPath);
+    assert.equal(countXmlMatches(slideXml, /<a:tailEnd type="arrow"/g), 2);
+    assert.equal(countXmlMatches(slideXml, /<a:headEnd type="arrow"/g), 0);
   });
 });
 

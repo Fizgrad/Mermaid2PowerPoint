@@ -460,15 +460,18 @@ function buildLineSegment(pptx, from, to, edge, diagram, paddingPx, isFirstSegme
     transparency,
     widthPt: pxToPt(edge.style.strokeWidthPx ?? 2),
     dashType: dashTypeFromPattern(edge.style.dashPattern),
+    // PptxGenJS writes beginArrowType as OOXML headEnd and endArrowType as
+    // tailEnd. For preset line/lineInv, those ends follow the shape's base
+    // geometry, so reverse SVG lines need their marker-start/end swapped.
     beginArrowType:
-      (isFirstSegment && edge.startArrow && !actualStartsAtBaseStart) ||
-      (isLastSegment && edge.endArrow && actualStartsAtBaseStart)
-        ? (isFirstSegment && !actualStartsAtBaseStart ? edge.startArrow : edge.endArrow)
-        : undefined,
-    endArrowType:
       (isFirstSegment && edge.startArrow && actualStartsAtBaseStart) ||
       (isLastSegment && edge.endArrow && !actualStartsAtBaseStart)
         ? (isFirstSegment && actualStartsAtBaseStart ? edge.startArrow : edge.endArrow)
+        : undefined,
+    endArrowType:
+      (isFirstSegment && edge.startArrow && !actualStartsAtBaseStart) ||
+      (isLastSegment && edge.endArrow && actualStartsAtBaseStart)
+        ? (isFirstSegment && !actualStartsAtBaseStart ? edge.startArrow : edge.endArrow)
         : undefined,
   };
 }

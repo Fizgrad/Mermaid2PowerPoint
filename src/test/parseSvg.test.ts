@@ -163,6 +163,19 @@ test("parseMermaidFlowchartSvg preserves Mermaid sequence diagrams as editable s
   );
 });
 
+test("parseMermaidFlowchartSvg keeps right-to-left sequence arrow point order", async () => {
+  const svg = await getFixtureSvg("sequence-direction-arrows");
+  const diagram = parseMermaidFlowchartSvg(svg);
+
+  const replyLine = diagram.genericShapes.find((shape) =>
+    shape.kind === "line" &&
+    shape.endArrow === "arrow" &&
+    Boolean(shape.points?.[0] && shape.points[1] && shape.points[0].x > shape.points[1].x)
+  );
+
+  assert.ok(replyLine);
+});
+
 test("parseMermaidFlowchartSvg merges multi-line sequence notes into one floating text box", async () => {
   const svg = await getFixtureSvg("sequence-note-breaks");
   const diagram = parseMermaidFlowchartSvg(svg);

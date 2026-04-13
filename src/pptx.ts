@@ -547,9 +547,6 @@ function buildLineSegment(
   const baseStart = inverted
     ? { x: minX, y: minY + height }
     : { x: minX, y: minY };
-  const baseEnd = inverted
-    ? { x: minX + width, y: minY }
-    : { x: minX + width, y: minY + height };
   const actualStartsAtBaseStart = isSamePoint(from, baseStart);
   const color = edge.style.stroke?.hex ?? DEFAULT_LINE_COLOR;
   const transparency = edge.style.stroke?.transparency ?? 0;
@@ -565,15 +562,18 @@ function buildLineSegment(
     transparency,
     widthPt,
     dashType: dashTypeFromPattern(edge.style.dashPattern),
+    // PptxGenJS writes beginArrowType as OOXML headEnd and endArrowType as
+    // tailEnd. For preset line/lineInv, those ends follow the shape's base
+    // geometry, so reverse SVG lines need their marker-start/end swapped.
     beginArrowType:
-      (isFirstSegment && edge.startArrow && !actualStartsAtBaseStart) ||
-      (isLastSegment && edge.endArrow && actualStartsAtBaseStart)
-        ? (isFirstSegment && !actualStartsAtBaseStart ? edge.startArrow : edge.endArrow)
-        : undefined,
-    endArrowType:
       (isFirstSegment && edge.startArrow && actualStartsAtBaseStart) ||
       (isLastSegment && edge.endArrow && !actualStartsAtBaseStart)
         ? (isFirstSegment && actualStartsAtBaseStart ? edge.startArrow : edge.endArrow)
+        : undefined,
+    endArrowType:
+      (isFirstSegment && edge.startArrow && !actualStartsAtBaseStart) ||
+      (isLastSegment && edge.endArrow && actualStartsAtBaseStart)
+        ? (isFirstSegment && !actualStartsAtBaseStart ? edge.startArrow : edge.endArrow)
         : undefined,
   };
 }

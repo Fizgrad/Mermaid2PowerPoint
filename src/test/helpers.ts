@@ -18,6 +18,7 @@ const curvedBasisPath = join(repoRoot, "examples", "curved-basis.mmd");
 const clusterRegressionPath = join(repoRoot, "examples", "cluster-regression.mmd");
 const imageNodePath = join(repoRoot, "examples", "image-node.mmd");
 const sequenceBasicPath = join(repoRoot, "examples", "sequence-basic.mmd");
+const sequenceDirectionArrowsPath = join(repoRoot, "examples", "sequence-direction-arrows.mmd");
 const sequenceNoteBreaksPath = join(repoRoot, "examples", "sequence-note-breaks.mmd");
 const stateBasicPath = join(repoRoot, "examples", "state-basic.mmd");
 const mindmapBasicPath = join(repoRoot, "examples", "mindmap-basic.mmd");
@@ -51,6 +52,7 @@ export function getFixtureMermaidPath(
     | "cluster-regression"
     | "image-node"
     | "sequence-basic"
+    | "sequence-direction-arrows"
     | "sequence-note-breaks"
     | "state-basic"
     | "mindmap-basic"
@@ -76,6 +78,8 @@ export function getFixtureMermaidPath(
       return imageNodePath;
     case "sequence-basic":
       return sequenceBasicPath;
+    case "sequence-direction-arrows":
+      return sequenceDirectionArrowsPath;
     case "sequence-note-breaks":
       return sequenceNoteBreaksPath;
     case "state-basic":
@@ -107,6 +111,7 @@ export function getFixtureSvg(
     | "cluster-regression"
     | "image-node"
     | "sequence-basic"
+    | "sequence-direction-arrows"
     | "sequence-note-breaks"
     | "state-basic"
     | "mindmap-basic"
