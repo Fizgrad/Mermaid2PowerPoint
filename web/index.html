@@ -5,41 +5,56 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mermaid2PowerPoint</title>
     <link rel="stylesheet" href="./styles.css" />
+    <script>
+      // 在样式加载前应用主题与语言，避免刷新时闪白/闪字
+      (function () {
+        try {
+          var saved = localStorage.getItem("m2p-theme");
+          var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var theme = saved || (prefersDark ? "dark" : "light");
+          document.documentElement.setAttribute("data-theme", theme);
+          var lang = localStorage.getItem("m2p-lang") || "zh";
+          document.documentElement.setAttribute("data-lang", lang);
+          document.documentElement.setAttribute("lang", lang === "zh" ? "zh-CN" : "en");
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div class="page-shell">
-      <header class="hero">
+      <header class="topbar">
         <div class="hero-copy">
-          <p class="eyebrow">Pure Browser PPT Export</p>
           <h1>Mermaid2PowerPoint</h1>
-          <p class="lede">
+          <p class="lede" data-i18n-html="lede">
             在网页里输入 Mermaid，实时做语法检查和预览，然后在浏览器里直接下载真正可编辑的
             <code>.pptx</code> 文件。
           </p>
         </div>
-        <div class="hero-note">
-          <p>优先支持 Mermaid flowchart。</p>
-          <p>支持常见节点、subgraph、图片节点和曲线边。</p>
-          <p>GitHub Pages 上也可以直接导出可编辑 PPT。</p>
+        <div class="topbar-actions">
+          <button id="lang-toggle" class="lang-toggle" type="button" aria-label="切换语言" title="切换语言">
+            <span class="lang-toggle-label lang-label-zh">EN</span>
+            <span class="lang-toggle-label lang-label-en">中</span>
+          </button>
+          <button id="theme-toggle" class="theme-toggle" type="button" aria-label="切换深浅主题" title="切换深浅主题" data-i18n-title="toggleTheme">
+            <span class="theme-toggle-icon theme-icon-sun">☀</span>
+            <span class="theme-toggle-icon theme-icon-moon">☾</span>
+          </button>
         </div>
       </header>
 
       <main class="workspace">
         <section class="panel editor-panel">
           <div class="panel-header">
-            <div>
-              <p class="panel-kicker">Editor</p>
-              <h2>Mermaid 输入</h2>
-            </div>
+            <h2 data-i18n="editorTitle">Mermaid 输入</h2>
             <div class="status-stack">
-              <div id="syntax-status" class="status-pill status-idle">等待输入</div>
-              <div id="export-status" class="status-pill status-idle">准备浏览器导出</div>
+              <div id="syntax-status" class="status-pill status-idle" data-i18n="statusWaiting">等待输入</div>
+              <div id="export-status" class="status-pill status-idle" data-i18n="statusExportReady">准备浏览器导出</div>
             </div>
           </div>
 
           <div class="toolbar">
             <label class="field compact-field">
-              <span>主题</span>
+              <span data-i18n="themeLabel">主题</span>
               <select id="theme-select">
                 <option value="default">default</option>
                 <option value="forest">forest</option>
@@ -49,44 +64,35 @@
             </label>
 
             <label class="field compact-field">
-              <span>背景</span>
+              <span data-i18n="bgLabel">背景</span>
               <input id="background-input" type="color" value="#ffffff" />
             </label>
 
             <label class="field compact-field">
-              <span>文件名</span>
+              <span data-i18n="filenameLabel">文件名</span>
               <input id="filename-input" type="text" value="mermaid-diagram.pptx" />
             </label>
 
-            <button id="sample-button" class="ghost-button" type="button">载入示例</button>
+            <button id="sample-button" class="ghost-button" type="button" data-i18n="sampleButton">载入示例</button>
           </div>
 
           <label class="field editor-field">
-            <span>Mermaid 代码</span>
+            <span data-i18n="codeLabel">Mermaid 代码</span>
             <textarea id="editor" spellcheck="false"></textarea>
           </label>
-
-          <div class="action-row">
-            <button id="download-button" class="primary-button" type="button" disabled>
-              生成可编辑 PPT
-            </button>
-            <p id="helper-text" class="helper-text">
-              先通过语法检查后才允许导出。
-            </p>
-          </div>
         </section>
 
         <section class="panel preview-panel">
           <div class="panel-header">
-            <div>
-              <p class="panel-kicker">Preview</p>
-              <h2>渲染预览</h2>
-            </div>
+            <h2 data-i18n="previewTitle">渲染预览</h2>
+            <button id="download-button" class="primary-button" type="button" disabled data-i18n="downloadButton">
+              导出 PPT
+            </button>
           </div>
 
           <div id="preview-frame" class="preview-frame">
             <div class="empty-state">
-              <p>在左侧输入 Mermaid，预览会显示在这里。</p>
+              <p data-i18n="emptyPreview">在左侧输入 Mermaid，预览会显示在这里。</p>
             </div>
           </div>
 

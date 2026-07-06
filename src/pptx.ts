@@ -81,21 +81,121 @@ function buildPresentation(
     slide.background = { color: diagram.background.hex };
   }
 
-  addGenericShapes(slide, pptx, diagram, paddingPx);
+  const consumedTexts = new Set<number>();
+  addGenericShapes(slide, pptx, diagram, paddingPx, consumedTexts);
   addClusters(slide, diagram, paddingPx);
   addEdges(slide, pptx, diagram, paddingPx);
   addMarkerDecorations(slide, pptx, diagram, paddingPx);
   addNodes(slide, pptx, diagram, paddingPx);
   addImageNodes(slide, pptx, diagram, paddingPx);
-  addFloatingTexts(slide, diagram, paddingPx);
+  addFloatingTexts(slide, diagram, paddingPx, consumedTexts);
 
   return { diagram, paddingPx, pptx };
 }
 
-function addGenericShapes(slide: any, pptx: any, diagram: ParsedDiagram, paddingPx: number): void {
-  for (const shape of diagram.genericShapes) {
-    addGenericShape(slide, pptx, diagram, paddingPx, shape);
+function addGenericShapes(
+  slide: any,
+  pptx: any,
+  diagram: ParsedDiagram,
+  paddingPx: number,
+  consumedTexts: Set<number>
+): void {
+  for (let i = 0; i < diagram.genericShapes.length; i++) {
+    const shape = diagram.genericShapes[i];
+    const textIndex = canMergeShapeText(shape)
+      ? findContainedText(shape, diagram.floatingTexts, consumedTexts)
+      : -1;
+    if (textIndex >= 0) {
+      consumedTexts.add(textIndex);
+      addGenericShapeWithText(slide, pptx, diagram, paddingPx, shape, diagram.floatingTexts[textIndex]);
+    } else {
+      addGenericShape(slide, pptx, diagram, paddingPx, shape);
+    }
   }
+}
+
+function canMergeShapeText(shape: ParsedGenericShape): boolean {
+  return (shape.kind === "rect" || shape.kind === "roundRect") && Boolean(shape.style?.fill);
+}
+
+function findContainedText(
+  shape: ParsedGenericShape,
+  floatingTexts: ParsedText[],
+  consumed: Set<number>
+): number {
+  const sx2 = shape.x + shape.width;
+  const sy2 = shape.y + shape.height;
+  const shapeArea = Math.max(shape.width * shape.height, 1);
+  let bestIndex = -1;
+  let bestRatio = 0.5;
+
+  for (let i = 0; i < floatingTexts.length; i++) {
+    if (consumed.has(i)) {
+      continue;
+    }
+    const t = floatingTexts[i];
+    if (!t.text) {
+      continue;
+    }
+
+    const ix = Math.max(0, Math.min(sx2, t.x + t.width) - Math.max(shape.x, t.x));
+    const iy = Math.max(0, Math.min(sy2, t.y + t.height) - Math.max(shape.y, t.y));
+    if (ix <= 0 || iy <= 0) {
+      continue;
+    }
+
+    const interArea = ix * iy;
+    const textArea = Math.max(t.width * t.height, 1);
+    const ratio = interArea / Math.min(textArea, shapeArea);
+    if (ratio > bestRatio) {
+      bestRatio = ratio;
+      bestIndex = i;
+    }
+  }
+
+  return bestIndex;
+}
+
+function addGenericShapeWithText(
+  slide: any,
+  pptx: any,
+  diagram: ParsedDiagram,
+  paddingPx: number,
+  shape: ParsedGenericShape,
+  text: ParsedText
+): void {
+  const shapeOptions = {
+    x: mapX(diagram, paddingPx, shape.x),
+    y: mapY(diagram, paddingPx, shape.y),
+    w: pxToIn(shape.width),
+    h: pxToIn(shape.height),
+    rectRadius: shape.kind === "roundRect" ? 0.14 : undefined,
+    fill: {
+      color: shape.style!.fill!.hex,
+      transparency: shape.style!.fill!.transparency,
+    },
+    line: shape.style?.stroke
+      ? {
+          color: shape.style.stroke.hex,
+          transparency: shape.style.stroke.transparency,
+          width: pxToPt(shape.style.strokeWidthPx ?? 1),
+          dashType: dashTypeFromPattern(shape.style.dashPattern),
+        }
+      : undefined,
+  };
+
+  slide.addText(text.text, {
+    shape: getShapeType(pptx, shape),
+    ...shapeOptions,
+    margin: 0,
+    fontFace: text.style.fontFamily ?? "Trebuchet MS",
+    fontSize: pxToPt(text.style.fontSizePx ?? 16),
+    color: text.style.color?.hex ?? DEFAULT_TEXT_COLOR,
+    align: text.style.align ?? "center",
+    valign: "middle",
+    fit: "shrink",
+    wrap: false,
+  });
 }
 
 function addMarkerDecorations(slide: any, pptx: any, diagram: ParsedDiagram, paddingPx: number): void {
@@ -154,7 +254,8 @@ function addNodes(slide: any, pptx: any, diagram: ParsedDiagram, paddingPx: numb
       continue;
     }
 
-    slide.addShape(getShapeType(pptx, node), {
+    const shapeType = getShapeType(pptx, node);
+    const shapeOptions = {
       x: mapX(diagram, paddingPx, node.x),
       y: mapY(diagram, paddingPx, node.y),
       w: pxToIn(node.width),
@@ -170,12 +271,47 @@ function addNodes(slide: any, pptx: any, diagram: ParsedDiagram, paddingPx: numb
         width: pxToPt(node.style.strokeWidthPx ?? 1),
         dashType: dashTypeFromPattern(node.style.dashPattern),
       },
-    });
+    };
 
     if (node.text) {
-      addText(slide, diagram, paddingPx, node.text);
+      // 将文字直接写入形状，这样在 PowerPoint 里移动节点时文字会跟着一起移动。
+      slide.addText(node.text.text, {
+        shape: shapeType,
+        ...shapeOptions,
+        margin: computeNodeTextMarginPt(node),
+        fontFace: node.text.style.fontFamily ?? "Trebuchet MS",
+        fontSize: pxToPt(node.text.style.fontSizePx ?? 16),
+        color: node.text.style.color?.hex ?? DEFAULT_TEXT_COLOR,
+        align: node.text.style.align ?? "center",
+        valign: "middle",
+        fit: "shrink",
+        wrap: false,
+      });
+    } else {
+      slide.addShape(shapeType, shapeOptions);
     }
   }
+}
+
+function computeNodeTextMarginPt(node: ParsedNode): number | number[] {
+  const text = node.text;
+  if (!text) {
+    return 0;
+  }
+
+  const leftPx = text.x - node.x;
+  const topPx = text.y - node.y;
+  const rightPx = node.x + node.width - (text.x + text.width);
+  const bottomPx = node.y + node.height - (text.y + text.height);
+
+  // pptxgenjs 的 margin 数组顺序为 [left, right, bottom, top]
+  // (margin[0]->lIns, [1]->rIns, [2]->bIns, [3]->tIns)，与库文档注释相反。
+  return [
+    Math.max(pxToPt(leftPx), 0),
+    Math.max(pxToPt(rightPx), 0),
+    Math.max(pxToPt(bottomPx), 0),
+    Math.max(pxToPt(topPx), 0),
+  ];
 }
 
 function addCustomGeometryNode(
@@ -217,9 +353,17 @@ function addCustomGeometryNode(
   });
 }
 
-function addFloatingTexts(slide: any, diagram: ParsedDiagram, paddingPx: number): void {
-  for (const text of diagram.floatingTexts) {
-    addText(slide, diagram, paddingPx, text);
+function addFloatingTexts(
+  slide: any,
+  diagram: ParsedDiagram,
+  paddingPx: number,
+  consumedTexts?: Set<number>
+): void {
+  for (let i = 0; i < diagram.floatingTexts.length; i++) {
+    if (consumedTexts?.has(i)) {
+      continue;
+    }
+    addText(slide, diagram, paddingPx, diagram.floatingTexts[i]);
   }
 }
 
@@ -238,6 +382,7 @@ function addText(
     boxStyle?: ShapeStyle;
     colorHex?: string;
     marginPt?: number;
+    wrap?: boolean;
   }
 ): void {
   const boxStyle = presentation?.boxStyle ?? text.boxStyle;
@@ -268,6 +413,7 @@ function addText(
     align: text.style.align ?? "center",
     valign: "middle",
     fit: "shrink",
+    wrap: presentation?.wrap ?? true,
     fill: boxStyle?.fill
       ? {
           color: boxStyle.fill.hex,
@@ -582,6 +728,7 @@ function resolveEdgeLabelPresentation(edge: ParsedEdge): {
   boxStyle: ShapeStyle;
   colorHex: string;
   marginPt: number;
+  wrap: boolean;
 } {
   const edgeColor = edge.style.stroke ?? {
     hex: DEFAULT_LINE_COLOR,
@@ -594,16 +741,15 @@ function resolveEdgeLabelPresentation(edge: ParsedEdge): {
   const boxStyle = shouldTheme
     ? {
         fill: tintColor(edgeColor, 0.84),
-        stroke: edgeColor,
-        strokeWidthPx: Math.max(edge.style.strokeWidthPx ?? 1, 1),
+        // 不加边框，与 Mermaid 预览一致（默认边标签只有背景、无边框）
       }
     : {
         fill: originalBoxStyle?.fill ?? {
           hex: DEFAULT_EDGE_LABEL_FILL,
           transparency: 20,
         },
-        stroke: originalBoxStyle?.stroke ?? edgeColor,
-        strokeWidthPx: originalBoxStyle?.strokeWidthPx ?? Math.max((edge.style.strokeWidthPx ?? 1) * 0.75, 1),
+        stroke: originalBoxStyle?.stroke,
+        strokeWidthPx: originalBoxStyle?.strokeWidthPx ?? 1,
         dashPattern: originalBoxStyle?.dashPattern,
       };
 
@@ -616,6 +762,8 @@ function resolveEdgeLabelPresentation(edge: ParsedEdge): {
     boxStyle,
     colorHex,
     marginPt: 2,
+    // 边标签通常很短，关闭自动换行避免在窄文字框里被误换行
+    wrap: false,
   };
 }
 
